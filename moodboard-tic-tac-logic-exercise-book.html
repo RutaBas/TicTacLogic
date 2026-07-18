@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mood board — Tic-Tac-Logic (concept anchor: school exercise book)</title>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Karla:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --surface-1: #F1EFE8;
+    --border: #D3D1C7;
+    --border-strong: #B4B2A9;
+    --text-primary: #2C2C2A;
+    --text-secondary: #5F5E5A;
+    --text-muted: #888780;
+  }
+  body {
+    margin: 0;
+    padding: 2rem;
+    background: #FFFFFF;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .cell {
+    width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Caveat', cursive; font-weight: 700; font-size: 30px;
+    border: 1px solid #C7BCA4; background: #FBF6EA; border-radius: 3px;
+  }
+  .sw { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .hex { font-size: 11px; color: var(--text-secondary); font-family: ui-monospace, Menlo, monospace; }
+  .role { font-size: 11px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+
+<!--
+  MOOD BOARD — Tic-Tac-Logic (Binairo/Takuzu)
+
+  Concept anchor: "Tic-Tac-Logic feels like noughts and crosses scrawled in the
+  margin of a school exercise book — paper, pencil, and a red pen that means
+  business."
+
+  Difficulty ladder: grid sizes (6x6 / 8x8 / 10x10 / 12x12 / 14x14), each with a
+  solver technique ceiling so bigger means harder, not just longer.
+-->
+
+<div style="background: var(--surface-1); border-radius: 12px; border: 0.5px solid var(--border); padding: 1.25rem; max-width: 640px;">
+
+  <div style="background-color:#F3ECDD; background-image:repeating-linear-gradient(to bottom, transparent 0px, transparent 27px, rgba(46,95,163,0.17) 27px, rgba(46,95,163,0.17) 28px); border-radius:12px; padding:1.5rem 1.25rem; display:flex; flex-direction:column; align-items:center; gap:14px; max-width:400px; margin:0 auto; box-shadow: inset 0 0 0 1px rgba(53,50,44,0.08), inset 0 -22px 26px -22px rgba(53,50,44,0.13);">
+    <div style="display:flex; justify-content:space-between; width:264px; align-items:baseline;">
+      <span style="font-family:'Karla',sans-serif; font-weight:500; font-size:12px; letter-spacing:0.5px; color:#6B655A; background:#F3ECDD; padding:0 4px;">6 &times; 6</span>
+      <span style="font-family:'Caveat',cursive; font-weight:700; font-size:20px; color:#35322C;">Tic-Tac-Logic</span>
+      <span style="font-family:'Karla',sans-serif; font-weight:500; font-size:12px; color:#6B655A; background:#F3ECDD; padding:0 4px;">2:14</span>
+    </div>
+    <div style="font-family:'Karla',sans-serif; font-weight:400; font-size:11px; color:#6B655A; background:#F3ECDD; padding:0 6px; margin-top:-8px;">needs: the uniqueness rule</div>
+    <div style="display:grid; grid-template-columns:repeat(6,44px); gap:3px;">
+      <div class="cell" style="color:#C0392B">&#10007;</div>
+      <div class="cell" style="color:#C0392B">&#10007;</div>
+      <div class="cell" style="color:#2E5FA3">&#9711;</div>
+      <div class="cell"></div>
+      <div class="cell" style="color:#2E5FA3">&#9711;</div>
+      <div class="cell"></div>
+      <div class="cell" style="color:#2E5FA3">&#9711;</div>
+      <div class="cell"></div>
+      <div class="cell" style="color:#C0392B">&#10007;</div>
+      <div class="cell" style="color:#C0392B">&#10007;</div>
+      <div class="cell"></div>
+      <div class="cell" style="color:#2E5FA3">&#9711;</div>
+      <div class="cell"></div>
+      <div class="cell" style="color:#2E5FA3">&#9711;</div>
+      <div class="cell"></div>
+      <div class="cell" style="color:#C0392B; background:#F7E4C9; border-color:#D9A441">&#10007;</div>
+      <div class="cell" style="color:#C0392B">&#10007;</div>
+      <div class="cell"></div>
+    </div>
+    <div style="display:flex; gap:8px; margin-top:2px;">
+      <div style="font-family:'Karla',sans-serif; font-weight:500; font-size:13px; color:#35322C; background:#FBF6EA; border:1px solid #C7BCA4; border-radius:6px; padding:9px 16px; box-shadow:0 1px 0 #C7BCA4;">Undo</div>
+      <div style="font-family:'Karla',sans-serif; font-weight:500; font-size:13px; color:#FBF6EA; background:#2E5FA3; border:1px solid #24497D; border-radius:6px; padding:9px 16px; box-shadow:0 1px 0 #24497D;">Hint</div>
+    </div>
+  </div>
+
+  <div style="display:flex; gap:14px; margin-top:1.25rem; flex-wrap:wrap;">
+    <div class="sw"><div style="width:44px;height:44px;border-radius:8px;background:#F3ECDD;border:0.5px solid var(--border);"></div><span class="hex">#F3ECDD</span><span class="role">paper / bg</span></div>
+    <div class="sw"><div style="width:44px;height:44px;border-radius:8px;background:#FBF6EA;border:0.5px solid var(--border);"></div><span class="hex">#FBF6EA</span><span class="role">cell fill</span></div>
+    <div class="sw"><div style="width:44px;height:44px;border-radius:8px;background:#35322C;border:0.5px solid var(--border);"></div><span class="hex">#35322C</span><span class="role">graphite / text</span></div>
+    <div class="sw"><div style="width:44px;height:44px;border-radius:8px;background:#C0392B;border:0.5px solid var(--border);"></div><span class="hex">#C0392B</span><span class="role">red pencil / X</span></div>
+    <div class="sw"><div style="width:44px;height:44px;border-radius:8px;background:#2E5FA3;border:0.5px solid var(--border);"></div><span class="hex">#2E5FA3</span><span class="role">ink / O + buttons</span></div>
+    <div class="sw"><div style="width:44px;height:44px;border-radius:8px;background:#C7BCA4;border:0.5px solid var(--border);"></div><span class="hex">#C7BCA4</span><span class="role">ruled line</span></div>
+    <div class="sw"><div style="width:44px;height:44px;border-radius:8px;background:#D9A441;border:0.5px solid var(--border);"></div><span class="hex">#D9A441</span><span class="role">hint / highlight</span></div>
+  </div>
+
+  <div style="margin-top:1.25rem; display:flex; flex-direction:column; gap:6px;">
+    <div style="font-family:'Caveat',cursive; font-weight:700; font-size:26px; color:var(--text-primary);">Caveat — title, X and O marks</div>
+    <div style="font-family:'Karla',sans-serif; font-size:15px; color:var(--text-secondary);">Karla — HUD, buttons, labels, 6&times;6 12:34</div>
+  </div>
+
+  <div style="margin-top:1.25rem; display:flex; align-items:flex-end; gap:10px;">
+    <div class="sw"><div style="width:18px;height:4px;background:var(--border-strong);"></div><span class="role">4</span></div>
+    <div class="sw"><div style="width:18px;height:8px;background:var(--border-strong);"></div><span class="role">8</span></div>
+    <div class="sw"><div style="width:18px;height:16px;background:var(--border-strong);"></div><span class="role">16</span></div>
+    <div class="sw"><div style="width:18px;height:24px;background:var(--border-strong);"></div><span class="role">24</span></div>
+    <div class="sw"><div style="width:18px;height:32px;background:var(--border-strong);"></div><span class="role">32</span></div>
+  </div>
+
+</div>
+</body>
+</html>

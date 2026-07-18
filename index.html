@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Tic-Tac-Logic</title>
+
+  <!-- PWA / iOS home-screen app -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#F3ECDD">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Tic-Tac-Logic">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+
+  <!-- Fonts: Caveat (title + X/O marks), Karla (HUD, buttons, labels). One link. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Karla:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Screens are populated by ui.js -->
+    <section id="start-screen" class="screen"></section>
+    <section id="game-screen" class="screen"></section>
+  </div>
+
+  <!-- shared overlay host (generating / win / rules) -->
+  <div id="overlay" class="overlay"><div class="panel" id="overlay-panel"></div></div>
+
+  <!--
+    Script load order is load-bearing. Plain <script> tags share ONE global
+    scope, so each file's top-level names are ambient globals for the files
+    after it. board.js first; nothing re-declares an earlier name.
+  -->
+  <script src="board.js"></script>
+  <script src="solver.js"></script>
+  <script src="generator.js"></script>
+  <script src="ui.js"></script>
+</body>
+</html>
