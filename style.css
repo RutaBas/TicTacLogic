@@ -14,6 +14,8 @@
   --ink-blue-dk:  #24497D;
   --amber:        #D9A441;
   --amber-fill:   #F7E4C9;
+  --amber-soft:   #FBEFD9;
+  --bad-fill:     #F6DAD3;
   --label-muted:  #8A8271;
   --text-2nd:     #6B655A;
   --clue-fill:    #F7F1E3;
@@ -170,8 +172,18 @@ body {
 .hud { width: 100%; display: flex; flex-direction: column; align-items: center; gap: var(--s1); }
 .hud-row {
   width: 100%;
-  display: flex; align-items: baseline; justify-content: space-between;
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
 }
+.hud-row .hud-timer { justify-self: end; }
+
+/* back-to-home: a quiet text button, but a full 44px tap target */
+.home-btn {
+  justify-self: start;
+  font-family: 'Karla'; font-weight: 500; font-size: 13px; color: var(--text-2nd);
+  background: var(--paper); border: none; padding: 0 6px; min-height: 44px; min-width: 44px;
+  text-align: left; cursor: pointer;
+}
+.home-btn:active { color: var(--graphite); }
 .hud-size, .hud-timer {
   font-family: 'Karla'; font-weight: 500; font-size: 13px; color: var(--text-2nd);
   background: var(--paper); padding: 0 4px;
@@ -249,8 +261,14 @@ body {
   50% { background: var(--amber); border-color: #B9862B; }
 }
 
-/* violation (wired live in step 5) */
+/* violation: flagged only after the player pauses (see ui.js scheduleViolations) */
+.cell.bad { background: var(--bad-fill); border-color: var(--red-pencil); }
 .cell.bad .mark { text-decoration: underline; text-decoration-color: var(--red-pencil); }
+
+/* hint layers: the line in question, the cells that prove it, the answer's ghost */
+.cell.hint-line { background: var(--amber-soft); }
+.cell.hint-ev { background: var(--amber-fill); border-color: var(--amber); }
+.cell .mark.ghost { opacity: 0.4; }
 .cell.shake { animation: shake 0.3s ease; }
 @keyframes shake {
   0%,100% { transform: translateX(0); }
@@ -259,6 +277,7 @@ body {
 
 /* controls */
 .controls { display: flex; gap: var(--s2); flex-wrap: wrap; justify-content: center; }
+.controls[hidden] { display: none; }
 .btn {
   font-family: 'Karla'; font-weight: 500; font-size: 13px;
   color: var(--graphite);
@@ -276,6 +295,62 @@ body {
   border-color: var(--ink-blue-dk); box-shadow: 0 1px 0 var(--ink-blue-dk);
 }
 .btn:disabled { opacity: 0.45; cursor: default; }
+.btn { min-height: 44px; }
+
+/* quiet secondary action ("skip tutorial", "admire the board") */
+.link-btn {
+  font-family: 'Karla'; font-size: 13px; color: var(--text-2nd);
+  background: var(--paper); border: none; padding: 0 6px; min-height: 44px;
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.overlay .panel .link-btn { margin-top: var(--s2); background: transparent; }
+
+/* ========================================================================= *
+ * TUTORIAL
+ * ========================================================================= */
+.learn-card {
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--amber-fill);
+  border: 1px solid var(--amber);
+  border-radius: 8px;
+  box-shadow: 0 1px 0 var(--amber);
+  padding: 13px 18px;
+  cursor: pointer;
+  transition: transform var(--ease);
+}
+.learn-card:active { transform: translateY(1px); box-shadow: none; }
+.learn-card .lc-main { font-family: 'Karla'; font-weight: 500; font-size: 15px; color: var(--graphite); }
+.learn-card .lc-sub { font-family: 'Karla'; font-size: 11px; color: var(--text-2nd); margin-top: 2px; }
+.learn-card .cc-arrow { color: var(--amber); }
+
+#tutorial-screen { justify-content: flex-start; gap: var(--s3); width: 100%; max-width: 460px; margin: 0 auto; }
+.tut-top { width: 100%; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
+.tut-dots { display: flex; gap: 6px; }
+.tut-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rule-line); }
+.tut-dot.past { background: var(--label-muted); }
+.tut-dot.on { background: var(--red-pencil); }
+.tut-title {
+  font-family: 'Caveat', cursive; font-weight: 700; font-size: 30px; color: var(--graphite);
+  margin: 0; text-align: center;
+}
+.tut-text, .tut-task {
+  font-family: 'Karla'; font-size: 15px; line-height: 1.5; color: var(--text-2nd);
+  background: var(--cell-fill); border: 1px solid var(--rule-line); border-radius: 8px;
+  padding: var(--s3); margin: 0; width: 100%;
+}
+.tut-task { text-align: center; font-weight: 500; color: var(--graphite); background: var(--paper); border-style: dashed; }
+.tut-task.good { color: var(--ink-blue); border-color: var(--ink-blue); border-style: solid; }
+.tut-task.oops { color: var(--red-pencil); border-color: var(--red-pencil); }
+.tut-board {
+  display: grid; gap: 3px; padding: 3px;
+  background: var(--paper); border-radius: 4px;
+  font-size: 30px;
+}
+.tut-board .cell { width: 44px; height: 44px; font-size: 30px; }
+.tut-board .cell.target { border: 2px dashed var(--amber); }
+.tut-board .cell.target.x, .tut-board .cell.target.o { border-style: solid; }
+.tut-board .cell.locked { opacity: 0.35; cursor: default; }
 
 /* hint reason line */
 .hint-reason {
@@ -366,6 +441,8 @@ body.dark {
   --ink-blue-dk:  #3D5B85;
   --amber:        #E4B65E;
   --amber-fill:   #4A3B22;
+  --amber-soft:   #3C3121;
+  --bad-fill:     #4A2A24;
   --label-muted:  #9E9482;
   --text-2nd:     #C7BBA6;
   --rule-rgba:    rgba(121, 166, 222, 0.10);

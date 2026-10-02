@@ -98,7 +98,7 @@
    * Screens + overlay
    * ======================================================================= */
   function showScreen(name) {
-    ["start-screen", "game-screen"].forEach(function (id) {
+    ["start-screen", "game-screen", "tutorial-screen"].forEach(function (id) {
       document.getElementById(id).classList.toggle("active", id === name + "-screen");
     });
   }
@@ -140,6 +140,14 @@
         '<div class="cc-arrow">→</div></div>';
     }
 
+    // first-timers get a friendly way into the tutorial
+    if (!lsGet(KEY_TUTORIAL, false)) {
+      html += '<div class="learn-card" id="learn-card">' +
+        '<div><div class="lc-main">New here? Learn to play</div>' +
+        '<div class="lc-sub">a 2-minute walkthrough of the three rules</div></div>' +
+        '<div class="cc-arrow">→</div></div>';
+    }
+
     html += '<div class="section-label on-paper">New puzzle</div>';
     html += '<div class="size-list">';
     SIZES.forEach(function (n) {
@@ -150,6 +158,7 @@
     html += '</div>';
 
     html += '<div class="footer">' +
+      '<a data-modal="tutorial">How to play</a>' +
       '<a data-modal="rules">Rules</a>' +
       '<a data-modal="stats">Stats</a>' +
       '<a data-modal="settings">Settings</a></div>';
@@ -163,6 +172,8 @@
     // continue
     var cc = document.getElementById("continue-card");
     if (cc) cc.addEventListener("click", continueSaved);
+    var lc = document.getElementById("learn-card");
+    if (lc) lc.addEventListener("click", function () { openTutorial(0); });
     // footer modals
     Array.prototype.forEach.call(el.querySelectorAll(".footer a"), function (a) {
       a.addEventListener("click", function () { openModal(a.dataset.modal); });
@@ -211,6 +222,7 @@
       label: puzzle.label,
       maxTier: puzzle.maxTier,
       moves: [],
+      hintsUsed: 0,
       startTime: Date.now(),
       finalElapsedMs: 0,
       over: false,
@@ -230,6 +242,7 @@
       cells: gridToString(game.state.cells, game.size),
       solution: gridToString(game.state.solution, game.size),
       elapsedMs: elapsedMs(),
+      hintsUsed: game.hintsUsed || 0,
       savedAt: Date.now(),
     });
   }
@@ -245,7 +258,7 @@
     state.cells = gridFromString(save.cells).grid;
     game = {
       state: state, size: save.size, label: save.label, maxTier: save.maxTier,
-      moves: [],
+      moves: [], hintsUsed: save.hintsUsed || 0,
       startTime: Date.now() - (save.elapsedMs || 0), // resume the clock
       finalElapsedMs: 0, over: false,
     };
@@ -303,36 +316,52 @@
 
     html += '<div class="hud">';
     html += '<div class="hud-row">' +
-      '<span class="hud-size">' + game.size + " × " + game.size + '</span>' +
+      '<button class="home-btn" id="btn-home" aria-label="Home">‹ Home</button>' +
       '<span class="hud-title">Tic-Tac-Logic</span>' +
       '<span class="hud-timer" id="hud-timer">0:00</span></div>';
-    html += '<div class="hud-badge">needs: ' + game.label + '</div>';
+    html += '<div class="hud-badge">' + game.size + " × " + game.size + ' · needs: ' + game.label + '</div>';
     html += '<div class="hud-progress" id="hud-progress">' + counts.filled + " / " + counts.total + '</div>';
     html += '</div>';
 
     html += '<div class="board-wrap"><div class="board" id="board"></div></div>';
     html += '<div class="hint-reason" id="hint-reason"></div>';
 
-    html += '<div class="controls">' +
+    html += '<div class="controls" id="controls">' +
       '<button class="btn" id="btn-undo">Undo</button>' +
       '<button class="btn" id="btn-clear">Clear</button>' +
       '<button class="btn primary" id="btn-hint">Hint</button>' +
       '<button class="btn" id="btn-restart">Restart</button>' +
-      '<button class="btn" id="btn-new">New</button>' +
+      '</div>';
+    html += '<div class="controls" id="controls-won" hidden>' +
+      '<button class="btn" id="btn-won-home">Home</button>' +
+      '<button class="btn primary" id="btn-won-next">Next puzzle</button>' +
       '</div>';
 
     el.innerHTML = html;
+    // The board element is created fresh above, so this is its ONE click
+    // listener. (buildBoard() must never add one — Clear/Restart call it on the
+    // same element, and stacked listeners made one tap cycle a cell 2-3 times.)
+    document.getElementById("board").addEventListener("click", onBoardClick);
     buildBoard();
     updateTimerLabel();
 
+    document.getElementById("btn-home").addEventListener("click", goHome);
     document.getElementById("btn-undo").addEventListener("click", undoMove);
     document.getElementById("btn-clear").addEventListener("click", clearBoard);
     document.getElementById("btn-hint").addEventListener("click", giveHint);
     document.getElementById("btn-restart").addEventListener("click", restartGame);
-    document.getElementById("btn-new").addEventListener("click", function () {
-      saveGame(); stopTimer(); showScreen("start"); renderStart();
-    });
+    document.getElementById("btn-won-home").addEventListener("click", goHome);
+    document.getElementById("btn-won-next").addEventListener("click", function () { startNewGame(game.size); });
     refreshControls();
+  }
+
+  function goHome() {
+    hideOverlay();
+    clearTimeout(violationTimer);
+    saveGame(); // no-op once the puzzle is won
+    stopTimer();
+    renderStart();
+    showScreen("start");
   }
 
   function markSpan(v, animate) {
@@ -357,14 +386,37 @@
         markSpan(game.state.cells[i], false) + "</div>";
     }
     board.innerHTML = html;
-    board.addEventListener("click", onBoardClick);
+    clearTimeout(violationTimer);
     prevBad = new Set();
     updateViolations();
   }
 
-  /* ---- live rule-violation highlighting (never blocks input) ---- */
+  /* ---- live rule-violation highlighting (never blocks input) ----
+   * Tapping cycles EMPTY -> X -> O, so a player who wants O passes through X.
+   * If that transient X broke a rule it used to flash as a mistake instantly.
+   * Now, after a tap, newly-broken rules are only flagged once the player pauses
+   * (VIOLATION_DELAY); rules that get FIXED clear immediately. */
+  var VIOLATION_DELAY = 650;
+  var violationTimer = null;
+  function scheduleViolations() {
+    clearTimeout(violationTimer);
+    var bad = findViolations(game.state.cells, game.size);
+    var board = document.getElementById("board");
+    prevBad.forEach(function (i) {
+      if (!bad.has(i)) {
+        var n = board.querySelector('[data-i="' + i + '"]');
+        if (n) n.classList.remove("bad");
+        prevBad.delete(i);
+      }
+    });
+    violationTimer = setTimeout(function () {
+      if (game && document.getElementById("board")) updateViolations();
+    }, VIOLATION_DELAY);
+  }
+
   var prevBad = new Set();
   function updateViolations() {
+    clearTimeout(violationTimer);
     var bad = findViolations(game.state.cells, game.size);
     var board = document.getElementById("board");
     // clear cells that are no longer offending
@@ -393,6 +445,7 @@
     if (!node) return;
     node.className = cellClass(i);
     node.innerHTML = markSpan(game.state.cells[i], animate);
+    prevBad.delete(i); // className reset dropped "bad"; let the next check re-flag it
   }
 
   /* ======================================================================= *
@@ -407,17 +460,17 @@
     if (isClue(game.state, r, c)) return; // locked
 
     var prev = game.state.cells[i];
+    // clear any prior hint highlight once the player acts (before re-rendering
+    // the cell, so a ghost hint mark can't linger on it)
+    clearHint();
     var next = cycleCell(game.state, r, c);
     game.moves.push({ i: i, prev: prev });
     renderCell(i, next !== EMPTY);
 
-    // clear any prior hint highlight once the player acts
-    clearHint();
     updateProgress();
     refreshControls();
-    updateViolations();
     saveGame();
-    checkWin();
+    if (!checkWin()) scheduleViolations();
   }
 
   function updateProgress() {
@@ -429,6 +482,11 @@
   function refreshControls() {
     var u = document.getElementById("btn-undo");
     if (u) u.disabled = game.moves.length === 0 || game.over;
+    var play = document.getElementById("controls"), won = document.getElementById("controls-won");
+    if (play) play.hidden = game.over;
+    if (won) won.hidden = !game.over;
+    var h = document.getElementById("btn-hint");
+    if (h) h.textContent = !hint ? "Hint" : hint.stage === 1 ? "Show cell" : hint.fix ? "Clear it" : "Fill it";
   }
 
   /* ======================================================================= *
@@ -436,10 +494,10 @@
    * ======================================================================= */
   function undoMove() {
     if (game.over || game.moves.length === 0) return;
+    clearHint();
     var m = game.moves.pop();
     game.state.cells[m.i] = m.prev;
     renderCell(m.i, false);
-    clearHint();
     updateProgress();
     refreshControls();
     updateViolations();
@@ -448,9 +506,9 @@
 
   function clearBoard() {
     if (game.over) return;
+    clearHint();
     clearPlayerMarks(game.state);
     game.moves = [];
-    clearHint();
     buildBoard();
     updateProgress();
     refreshControls();
@@ -458,11 +516,12 @@
   }
 
   function restartGame() {
+    clearHint();
     clearPlayerMarks(game.state);
     game.moves = [];
+    game.hintsUsed = 0;
     game.over = false;
     game.startTime = Date.now();
-    clearHint();
     startTimer();
     buildBoard();
     updateProgress();
@@ -472,59 +531,141 @@
   }
 
   /* ======================================================================= *
-   * HINT — basic version (reveal the next logical cell). Rich reasons + the
-   * exact solver deduction wording arrive in step 5.
+   * HINT — three presses, always about the SAME next logical step:
+   *   1st  "nudge": highlight the clue cells / line and say where to look
+   *   2nd  "show":  also mark the target cell with a faint ghost of the answer
+   *   3rd  "fill":  write the mark in (an ordinary, undoable move)
+   * Any tap on the board, Undo, Clear or Restart resets the sequence.
+   * The step comes from solver.js nextHint(): simplest technique first, and
+   * nearest the player's last move, so hints follow where they're working.
    * ======================================================================= */
-  var hintCell = -1;
-  function clearHint() {
-    if (hintCell === -1) return;
+  var hint = null; // { stage, i, mark, cells: [indices with hint classes], fix? }
+  var HINT_CLASSES = ["hint", "hint-ev", "hint-line"];
+
+  function cellNode(i) {
     var board = document.getElementById("board");
-    var node = board && board.querySelector('[data-i="' + hintCell + '"]');
-    if (node) node.classList.remove("hint");
-    hintCell = -1;
-    var hr = document.getElementById("hint-reason");
-    if (hr) hr.textContent = "";
+    return board && board.querySelector('[data-i="' + i + '"]');
   }
-  function flashHint(i, reason) {
-    clearHint();
-    hintCell = i;
-    var node = document.getElementById("board").querySelector('[data-i="' + i + '"]');
-    if (node) { node.classList.remove("hint"); void node.offsetWidth; node.classList.add("hint"); }
-    document.getElementById("hint-reason").textContent = reason;
+  function setHintText(t) {
+    var hr = document.getElementById("hint-reason");
+    if (hr) hr.textContent = t || "";
+  }
+  function clearHint() {
+    if (hint) {
+      hint.cells.forEach(function (i) {
+        var n = cellNode(i);
+        if (n) HINT_CLASSES.forEach(function (c) { n.classList.remove(c); });
+      });
+      var ghostAt = hint.ghost ? hint.i : -1;
+      hint = null;
+      // remove the ghost answer mark (and its x/o colour class), if one was drawn
+      if (ghostAt !== -1) renderCell(ghostAt, false);
+    }
+    setHintText("");
+    refreshControls();
+  }
+  function addHintClass(i, cls) {
+    var n = cellNode(i);
+    if (!n) return;
+    if (cls === "hint") { n.classList.remove("hint"); void n.offsetWidth; } // restart the pulse
+    n.classList.add(cls);
+    if (hint.cells.indexOf(i) === -1) hint.cells.push(i);
+  }
+
+  /** Most recently placed player mark that disagrees with the solution, or -1. */
+  function findWrongMark() {
+    var cells = game.state.cells, sol = game.state.solution;
+    for (var k = game.moves.length - 1; k >= 0; k--) {
+      var i = game.moves[k].i;
+      if (cells[i] !== EMPTY && cells[i] !== sol[i]) return i;
+    }
+    for (var j = 0; j < cells.length; j++) {
+      if (game.state.clues[j] === EMPTY && cells[j] !== EMPTY && cells[j] !== sol[j]) return j;
+    }
+    return -1;
+  }
+  function lastMoveCell() {
+    for (var k = game.moves.length - 1; k >= 0; k--) {
+      if (game.state.cells[game.moves[k].i] !== EMPTY) return game.moves[k].i;
+    }
+    return null;
+  }
+  function cellName(i) {
+    return "row " + (rowOf(i, game.size) + 1) + ", column " + (colOf(i, game.size) + 1);
   }
 
   function giveHint() {
     if (game.over) return;
-    var cells = game.state.cells, sol = game.state.solution, clues = game.state.clues;
 
-    // 1) if the player has placed something that contradicts the solution, say so
-    for (var i = 0; i < cells.length; i++) {
-      if (clues[i] === EMPTY && cells[i] !== EMPTY && cells[i] !== sol[i]) {
-        flashHint(i, "The mark at row " + (rowOf(i, game.size) + 1) + ", column " +
-          (colOf(i, game.size) + 1) + " leads to a dead end — try clearing it.");
-        return;
-      }
+    // continuing an active hint: escalate one stage
+    if (hint) {
+      if (hint.stage === 1) { showHintStage2(); return; }
+      if (hint.stage === 2) { fillHint(); return; }
     }
+    clearHint();
+    updateViolations(); // a hint should never wait on the deferred mistake flag
 
-    // 2) otherwise reveal the next real deduction, with the solver's reason
-    var h = hintDeduction(cells, game.size);
-    if (!h) {
-      document.getElementById("hint-reason").textContent =
-        isComplete(cells) ? "All filled in — nothing left to deduce." : "No simple next step here.";
+    // a mistake comes first: no deduction is trustworthy on top of a wrong mark
+    var w = findWrongMark();
+    if (w !== -1) {
+      hint = { stage: 2, i: w, mark: EMPTY, cells: [], fix: true };
+      game.hintsUsed = (game.hintsUsed || 0) + 1;
+      addHintClass(w, "hint");
+      setHintText("The " + (game.state.cells[w] === X ? "X" : "O") + " at " + cellName(w) +
+        " doesn't fit the solution. Press again to clear it.");
+      refreshControls();
       return;
     }
-    flashHint(h.i, h.reason);
+
+    var h = nextHint(game.state.cells, game.size, lastMoveCell());
+    if (!h) { setHintText("Nothing left to deduce."); return; }
+    game.hintsUsed = (game.hintsUsed || 0) + 1;
+    hint = { stage: 1, i: h.i, mark: h.mark, h: h, cells: [] };
+    h.line.forEach(function (i) { addHintClass(i, "hint-line"); });
+    h.evidence.forEach(function (i) { addHintClass(i, "hint-ev"); });
+    if (h.kind === "trial") addHintClass(h.i, "hint-ev"); // the nudge says "the highlighted cell"
+    setHintText(h.nudge);
+    refreshControls();
+    saveGame();
+  }
+
+  function showHintStage2() {
+    hint.stage = 2;
+    addHintClass(hint.i, "hint");
+    var n = cellNode(hint.i);
+    if (n && game.state.cells[hint.i] === EMPTY) {
+      n.innerHTML = '<span class="mark ghost">' + (hint.mark === X ? "X" : "O") + "</span>";
+      n.classList.add(hint.mark === X ? "x" : "o");
+      hint.ghost = true;
+    }
+    setHintText(hint.h.reason);
+    refreshControls();
+  }
+
+  function fillHint() {
+    var i = hint.i, mark = hint.mark;
+    clearHint();
+    game.moves.push({ i: i, prev: game.state.cells[i] });
+    game.state.cells[i] = mark; // EMPTY when clearing a mistake
+    renderCell(i, mark !== EMPTY);
+    updateProgress();
+    refreshControls();
+    saveGame();
+    if (!checkWin()) updateViolations();
   }
 
   /* ======================================================================= *
    * WIN — minimal detection now; full celebration + stats land in step 6.
    * ======================================================================= */
+  /** Returns true if this move won the game. */
   function checkWin() {
-    if (!isComplete(game.state.cells)) return;
-    if (!isSolved(game.state.cells, game.size)) return; // complete but with violations
+    if (!isComplete(game.state.cells)) return false;
+    if (!isSolved(game.state.cells, game.size)) return false; // complete but with violations
     // capture final time BEFORE flipping `over` (getter returns frozen value after)
     game.finalElapsedMs = Date.now() - game.startTime;
     game.over = true;
+    clearHint();
+    clearTimeout(violationTimer);
     stopTimer();
     updateTimerLabel();
     refreshControls();
@@ -537,7 +678,8 @@
 
     drawWinStroke();   // a red-pencil stroke sweeps across the finished grid
     bounceTitle();     // the title gives one happy bounce
-    setTimeout(function () { showWinOverlay(ss); }, 720); // let the stroke land first
+    setTimeout(function () { if (game && game.over) showWinOverlay(ss); }, 720); // let the stroke land first
+    return true;
   }
 
   /* the biggest moment: a red-pencil slash animates across the completed grid */
@@ -632,14 +774,180 @@
       '<p>' + game.size + " × " + game.size + " · <strong>" + fmtTime(game.finalElapsedMs) + "</strong>" +
       (isBest ? " · a new best!" : " · best " + best) +
       "<br>needs: " + game.label +
+      (game.hintsUsed ? "<br>hints used: " + game.hintsUsed : "<br>no hints — all you!") +
       (streak > 1 ? "<br>streak: " + streak + " in a row" : "") + '</p>' +
       '<div class="share-row">' +
       '<button class="btn" id="ov-share">Share</button>' +
-      '<button class="btn primary" id="ov-new">New puzzle</button></div>');
+      '<button class="btn" id="ov-home">Home</button>' +
+      '<button class="btn primary" id="ov-next">Next ' + game.size + " × " + game.size + '</button></div>' +
+      '<button class="link-btn" id="ov-look">admire the board</button>');
     document.getElementById("ov-share").addEventListener("click", function () { copyShare(this); });
-    document.getElementById("ov-new").addEventListener("click", function () {
-      hideOverlay(); showScreen("start"); renderStart();
+    document.getElementById("ov-home").addEventListener("click", goHome);
+    document.getElementById("ov-next").addEventListener("click", function () { startNewGame(game.size); });
+    document.getElementById("ov-look").addEventListener("click", hideOverlay);
+  }
+
+  /* ======================================================================= *
+   * TUTORIAL — short interactive lessons, one rule each. Each lesson is a tiny
+   * board: graphite givens, a few "your turn" cells the player must fill
+   * correctly to move on, and every other cell locked. Uses the same tap cycle
+   * (and the same deferred mistake feedback) as the real game.
+   * ======================================================================= */
+  var KEY_TUTORIAL = "tictaclogic.tutorialDone";
+  var LESSONS = [
+    {
+      title: "Tap to write",
+      text: "Every cell gets an <b>X</b> or an <b>O</b>. Tap an empty cell once for X, " +
+        "twice for O, and a third time to clear it.",
+      task: "Write X in the first cell and O in the second.",
+      rows: 1, cols: 4, givens: "....", answer: "XO..",
+      wrong: "Keep tapping — the cell cycles X → O → empty.",
+    },
+    {
+      title: "Rule 1 · No three in a row",
+      text: "Never put three of the same mark next to each other — across <i>or</i> down. " +
+        "Two X’s side by side? The next cell must be O.",
+      task: "Fill the gap after the two X’s.",
+      rows: 1, cols: 6, givens: "XX.OXO", answer: "XXOOXO",
+      wrong: "That makes three X’s in a row. Try O.",
+    },
+    {
+      title: "Rule 1 · Mind the gap",
+      text: "It works down columns too. A gap squeezed between two O’s can’t be O " +
+        "(that would make three) — so it must be X.",
+      task: "Fill the sandwiched cell.",
+      rows: 6, cols: 1, givens: "O.OXXO", answer: "OXOXXO",
+      wrong: "O-O-O would be three in a row. Try X.",
+    },
+    {
+      title: "Rule 2 · Keep it balanced",
+      text: "Every row and column holds the same number of X’s and O’s — three of each " +
+        "in a 6-wide row. This row already has all three of its X’s…",
+      task: "…so finish it with O’s.",
+      rows: 1, cols: 6, givens: "XOX.X.", answer: "XOXOXO",
+      wrong: "This row already has its three X’s — the rest are O.",
+    },
+    {
+      title: "Rule 3 · No twins",
+      text: "No two rows may be identical, and no two columns either. Row 3 could end " +
+        "<b>X O O X</b> — but that’s an exact copy of row 1.",
+      task: "Finish row 3 the only other way.",
+      rows: 3, cols: 4, givens: "XOOXOXXOXO..", answer: "XOOXOXXOXOXO",
+      wrong: "X O O X would copy row 1. Try the other order.",
+    },
+    {
+      title: "You’re ready",
+      text: "Every puzzle has exactly one answer, and you can always reach it with these " +
+        "three rules — no guessing needed.<br><br>" +
+        "<b>Stuck?</b> Press <b>Hint</b>: first it shows where to look, press again to see " +
+        "the cell, and once more to fill it in.<br>" +
+        "<b>Underlined marks</b> break a rule. <b>Undo</b> takes back your last move.",
+      rows: 0,
+    },
+  ];
+  var tut = null; // { k: lesson index, cells: [marks], done: bool }
+
+  function openTutorial(k) {
+    clearTimeout(violationTimer);
+    stopTimer();
+    saveGame();
+    hideOverlay();
+    tut = { k: k || 0 };
+    renderTutorial();
+    showScreen("tutorial");
+  }
+  function finishTutorial() { lsSet(KEY_TUTORIAL, true); }
+
+  function renderTutorial() {
+    var L = LESSONS[tut.k];
+    var el = document.getElementById("tutorial-screen");
+    tut.cells = L.rows ? L.givens.split("").map(charToMark) : [];
+    tut.done = !L.rows;
+    var html = '<div class="tut-top">' +
+      '<button class="home-btn" id="tut-exit">‹ Home</button>' +
+      '<div class="tut-dots">';
+    for (var d = 0; d < LESSONS.length; d++) {
+      html += '<span class="tut-dot' + (d === tut.k ? " on" : d < tut.k ? " past" : "") + '"></span>';
+    }
+    html += '</div><span class="tut-spacer"></span></div>';
+    html += '<h2 class="tut-title">' + L.title + '</h2>';
+    html += '<p class="tut-text">' + L.text + '</p>';
+    if (L.rows) {
+      html += '<div class="tut-board" id="tut-board" style="grid-template-columns: repeat(' + L.cols + ', 44px)">';
+      for (var i = 0; i < tut.cells.length; i++) {
+        var given = L.givens[i] !== ".";
+        var target = !given && L.answer[i] !== ".";
+        var v = tut.cells[i];
+        html += '<div class="cell' + (v === X ? " x" : v === O ? " o" : "") +
+          (given ? " clue" : target ? " target" : " locked") + '" data-i="' + i + '">' +
+          markSpan(v, false) + '</div>';
+      }
+      html += '</div>';
+      html += '<p class="tut-task" id="tut-task">' + L.task + '</p>';
+    }
+    var last = tut.k === LESSONS.length - 1;
+    html += '<div class="controls">' +
+      (tut.k > 0 ? '<button class="btn" id="tut-back">Back</button>' : '') +
+      (last
+        ? '<button class="btn primary" id="tut-play">Play a 6 × 6</button>'
+        : '<button class="btn primary" id="tut-next"' + (tut.done ? "" : " disabled") + '>Next</button>') +
+      '</div>';
+    if (!last) html += '<button class="link-btn" id="tut-skip">skip tutorial</button>';
+    el.innerHTML = html;
+
+    var board = document.getElementById("tut-board");
+    if (board) board.addEventListener("click", onTutorialTap);
+    document.getElementById("tut-exit").addEventListener("click", function () {
+      tut = null; renderStart(); showScreen("start");
     });
+    var b = document.getElementById("tut-back");
+    if (b) b.addEventListener("click", function () { tut.k--; renderTutorial(); });
+    var n = document.getElementById("tut-next");
+    if (n) n.addEventListener("click", function () { tut.k++; renderTutorial(); });
+    var s = document.getElementById("tut-skip");
+    if (s) s.addEventListener("click", function () { finishTutorial(); tut = null; renderStart(); showScreen("start"); });
+    var p = document.getElementById("tut-play");
+    if (p) p.addEventListener("click", function () { finishTutorial(); tut = null; startNewGame(6); });
+    if (last) finishTutorial();
+  }
+
+  var tutTimer = null;
+  function onTutorialTap(e) {
+    var node = e.target.closest(".cell");
+    if (!node || tut.done || !node.classList.contains("target")) return;
+    var L = LESSONS[tut.k];
+    var i = parseInt(node.dataset.i, 10);
+    var v = tut.cells[i];
+    var next = v === EMPTY ? X : v === X ? O : EMPTY;
+    tut.cells[i] = next;
+    node.className = "cell target" + (next === X ? " x" : next === O ? " o" : "");
+    node.innerHTML = markSpan(next, next !== EMPTY);
+
+    var task = document.getElementById("tut-task");
+    clearTimeout(tutTimer);
+    var solved = true, wrongAt = -1;
+    for (var k = 0; k < tut.cells.length; k++) {
+      var want = L.answer[k] === "." ? EMPTY : charToMark(L.answer[k]);
+      if (tut.cells[k] !== want) solved = false;
+      if (tut.cells[k] !== EMPTY && tut.cells[k] !== want) wrongAt = k;
+    }
+    task.classList.remove("good", "oops");
+    task.textContent = L.task;
+    if (solved) {
+      tut.done = true;
+      task.textContent = "Nice — that’s it!";
+      task.classList.add("good");
+      document.getElementById("tut-next").disabled = false;
+      return;
+    }
+    // same patience as the real board: only complain once the player pauses
+    if (wrongAt !== -1) {
+      tutTimer = setTimeout(function () {
+        if (!tut || !document.getElementById("tut-task")) return;
+        task.textContent = L.wrong;
+        task.classList.add("oops");
+      }, VIOLATION_DELAY);
+    }
   }
 
   /* ======================================================================= *
@@ -698,14 +1006,18 @@
   }
 
   function openModal(which) {
+    if (which === "tutorial") { openTutorial(0); return; }
     if (which === "rules") {
-      showOverlay('<h2>How to play</h2><ul class="rules-list">' +
+      showOverlay('<h2>The rules</h2><ul class="rules-list">' +
         '<li>Fill every cell with X or O.</li>' +
         '<li>No more than two of the same mark in a row — across or down.</li>' +
         '<li>Each row and column holds equal X’s and O’s.</li>' +
         '<li>No two rows are identical, and no two columns are identical.</li>' +
         '<li>Every puzzle has one answer, reachable by logic alone.</li>' +
-        '</ul><button class="btn" id="ov-close">Got it</button>');
+        '</ul><div class="share-row">' +
+        '<button class="btn" id="ov-tutorial">Tutorial</button>' +
+        '<button class="btn primary" id="ov-close">Got it</button></div>');
+      document.getElementById("ov-tutorial").addEventListener("click", function () { openTutorial(0); });
     } else if (which === "stats") {
       showOverlay(renderStatsHtml());
     } else {

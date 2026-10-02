@@ -542,18 +542,41 @@ function isUniqueBounded(grid, size, budget) {
 }
 
 /* ==================================================================== *
- * hintDeduction — the EASIEST next single forced cell from the current board,
- * with the technique tier and a plain-language reason. Powers the Hint button:
- * it reveals the next logical deduction (never a random answer). Scans tiers in
- * order, so the reason names the simplest rule that applies.
+ * nextHint — the EASIEST next forced cell from the current board, packaged
+ * for a three-stage hint (nudge -> point -> place). Powers the Hint button: it
+ * reveals the next logical deduction, never a random answer.
+ *
+ * Consistency rules (what makes hints feel like "the next step"):
+ *   1. Always the simplest technique available: tiers are scanned in order and
+ *      the first tier with ANY candidate wins.
+ *   2. Within that tier, prefer the candidate nearest `focus` (the player's
+ *      last move), so the hint continues where they are working instead of
+ *      jumping to the top-left corner. Ties fall back to reading order.
+ *
+ * Every hint carries `evidence` (the cells that justify it) and `line` (the
+ * cells of the row/column it lives in), so the UI can show WHY, plus two texts:
+ *   nudge  — where to look, without giving the answer
+ *   reason — the full explanation naming the cell and mark
  *
  * Assumes the filled cells are consistent with the solution (the UI checks for
- * player mistakes separately). Returns { i, mark, tier, reason } or null.
+ * player mistakes separately). Returns
+ *   { i, mark, tier, kind, line, evidence, nudge, reason }  or null.
  * ==================================================================== */
-function hintDeduction(grid, size) {
+function nextHint(grid, size, focus) {
   const half = size / 2;
   const nameOf = (m) => (m === X ? "X" : "O");
-  const mk = (i, mark, tier, reason) => ({ i, mark, tier, reason });
+  const plural = (m) => nameOf(m) + "'s";
+  const hasFocus = focus != null && focus >= 0;
+  const fr = hasFocus ? rowOf(focus, size) : 0, fc = hasFocus ? colOf(focus, size) : 0;
+  const dist = (i) => (hasFocus ? Math.abs(rowOf(i, size) - fr) + Math.abs(colOf(i, size) - fc) : 0);
+  // pick the best candidate: nearest the focus, then reading order (lowest index)
+  const best = (cands) => {
+    let b = null;
+    for (const h of cands) {
+      if (!b || dist(h.i) < dist(b.i) || (dist(h.i) === dist(b.i) && h.i < b.i)) b = h;
+    }
+    return b;
+  };
 
   // build the row/col line list once
   const lines = [];
@@ -568,75 +591,128 @@ function hintDeduction(grid, size) {
     lines.push({ kind: "col", idx: c, cells: a });
   }
   const label = (ln) => (ln.kind === "row" ? "row " : "column ") + (ln.idx + 1);
+  const Label = (ln) => (ln.kind === "row" ? "Row " : "Column ") + (ln.idx + 1);
+  const mk = (i, mark, tier, kind, ln, evidence, nudge, reason) =>
+    ({ i, mark, tier, kind, line: ln.cells.slice(), evidence, nudge, reason });
 
-  // T1 — triple-block: placing the pair's mark would make three in a row.
+  let cands = [];
+
+  // T1 — triple-block: a pair (or a sandwiched gap) forces the opposite mark.
   for (const ln of lines) {
     const v = ln.cells.map((i) => grid[i]);
     for (let k = 0; k + 2 < size; k++) {
       const a = v[k], b = v[k + 1], c = v[k + 2];
-      let pos = -1, m = EMPTY;
-      if (a !== EMPTY && a === b && c === EMPTY) { pos = k + 2; m = a; }
-      else if (b !== EMPTY && b === c && a === EMPTY) { pos = k; m = b; }
-      else if (a !== EMPTY && a === c && b === EMPTY) { pos = k + 1; m = a; }
-      if (pos !== -1) {
-        return mk(ln.cells[pos], opposite(m), 1,
-          "Three " + nameOf(m) + "'s can't sit in a row — " + label(ln) +
-          " forces " + nameOf(opposite(m)) + " here.");
+      const C = ln.cells;
+      if (a !== EMPTY && a === b && c === EMPTY) {
+        cands.push(mk(C[k + 2], opposite(a), 1, "pair", ln, [C[k], C[k + 1]],
+          "Look at " + label(ln) + ": two " + plural(a) + " sit side by side.",
+          "Two " + plural(a) + " side by side — a third would make three in a row, so this cell is " + nameOf(opposite(a)) + "."));
+      }
+      if (b !== EMPTY && b === c && a === EMPTY) {
+        cands.push(mk(C[k], opposite(b), 1, "pair", ln, [C[k + 1], C[k + 2]],
+          "Look at " + label(ln) + ": two " + plural(b) + " sit side by side.",
+          "Two " + plural(b) + " side by side — a third would make three in a row, so this cell is " + nameOf(opposite(b)) + "."));
+      }
+      if (a !== EMPTY && a === c && b === EMPTY) {
+        cands.push(mk(C[k + 1], opposite(a), 1, "gap", ln, [C[k], C[k + 2]],
+          "Look at " + label(ln) + ": a gap is sandwiched between two " + plural(a) + ".",
+          "This gap sits between two " + plural(a) + " — filling it with " + nameOf(a) +
+          " would make three in a row, so it's " + nameOf(opposite(a)) + "."));
       }
     }
   }
+  if (cands.length) return best(cands);
 
   // T2 — count completion: a line already holds all N/2 of one mark.
   for (const ln of lines) {
-    let x = 0, o = 0, empty = -1;
-    for (const i of ln.cells) { const vv = grid[i]; if (vv === X) x++; else if (vv === O) o++; else if (empty === -1) empty = i; }
-    if (empty === -1) continue;
-    if (x === half) return mk(empty, O, 2, label(ln) + " already has all " + half + " X's, so the rest are O.");
-    if (o === half) return mk(empty, X, 2, label(ln) + " already has all " + half + " O's, so the rest are X.");
+    let x = 0, o = 0;
+    const empties = [];
+    for (const i of ln.cells) { const vv = grid[i]; if (vv === X) x++; else if (vv === O) o++; else empties.push(i); }
+    if (!empties.length) continue;
+    let full = EMPTY;
+    if (x === half) full = X; else if (o === half) full = O;
+    if (full === EMPTY) continue;
+    const ev = ln.cells.filter((i) => grid[i] === full);
+    for (const i of empties) {
+      cands.push(mk(i, opposite(full), 2, "count", ln, ev,
+        Label(ln) + " already has all " + half + " of its " + plural(full) + ".",
+        Label(ln) + " already has all " + half + " " + plural(full) + " — every remaining cell is " + nameOf(opposite(full)) + "."));
+    }
   }
+  if (cands.length) return best(cands);
 
-  // T3 — single-line completion.
+  // T3 — single-line completion: only one mark fits this cell in every
+  // valid way to finish the line.
   for (const ln of lines) {
     const v = ln.cells.map((i) => grid[i]);
     if (v.indexOf(EMPTY) === -1) continue;
     const res = analyzeLine(v, size, null);
     if (res.contradiction || !res.forced.length) continue;
-    const f = res.forced[0];
-    return mk(ln.cells[f.pos], f.mark, 3,
-      "In " + label(ln) + ", every valid way to finish the line puts " + nameOf(f.mark) + " here.");
+    const c = lineCounts(v);
+    const needs = Label(ln) + " still needs " + (half - c.x) + " X and " + (half - c.o) + " O";
+    const ev = ln.cells.filter((i) => grid[i] !== EMPTY);
+    for (const f of res.forced) {
+      cands.push(mk(ln.cells[f.pos], f.mark, 3, "line", ln, ev,
+        needs + ". Try fitting them in without making three in a row.",
+        needs + ". Every way to fit them without three in a row puts " + nameOf(f.mark) + " in this cell."));
+    }
   }
+  if (cands.length) return best(cands);
 
-  // T4 — uniqueness rule.
-  const completeRows = new Set(), completeCols = new Set();
-  for (let r = 0; r < size; r++) { const l = getRow(grid, size, r); if (l.indexOf(EMPTY) === -1) completeRows.add(l.join("")); }
-  for (let c = 0; c < size; c++) { const l = getCol(grid, size, c); if (l.indexOf(EMPTY) === -1) completeCols.add(l.join("")); }
+  // T4 — uniqueness rule: the other mark would complete a copy of a finished line.
+  const complete = { row: [], col: [] };
+  for (const ln of lines) {
+    const v = ln.cells.map((i) => grid[i]);
+    if (v.indexOf(EMPTY) === -1) complete[ln.kind].push({ ln, key: v.join("") });
+  }
   for (const ln of lines) {
     const v = ln.cells.map((i) => grid[i]);
     if (v.indexOf(EMPTY) === -1) continue;
-    const forbidden = ln.kind === "row" ? completeRows : completeCols;
-    if (forbidden.size === 0) continue;
-    const res = analyzeLine(v, size, forbidden);
+    const done = complete[ln.kind];
+    if (!done.length) continue;
+    const res = analyzeLine(v, size, new Set(done.map((d) => d.key)));
     if (res.contradiction || !res.forced.length) continue;
-    const f = res.forced[0];
-    return mk(ln.cells[f.pos], f.mark, 4,
-      "Any other mark here would make " + label(ln) +
-      " a copy of a line that's already finished — so it's " + nameOf(f.mark) + ".");
+    for (const f of res.forced) {
+      // the finished twin: agrees with every filled cell here, has the other mark at f.pos
+      const twin = done.find((d) => {
+        if (+d.key[f.pos] !== opposite(f.mark)) return false;
+        for (let k = 0; k < size; k++) if (v[k] !== EMPTY && +d.key[k] !== v[k]) return false;
+        return true;
+      });
+      const twinName = twin ? label(twin.ln) : "a finished " + (ln.kind === "row" ? "row" : "column");
+      const ev = twin ? twin.ln.cells.slice() : [];
+      cands.push(mk(ln.cells[f.pos], f.mark, 4, "unique", ln, ev,
+        "Compare " + label(ln) + " with " + twinName + " — no two " + (ln.kind === "row" ? "rows" : "columns") + " may be identical.",
+        "Putting " + nameOf(opposite(f.mark)) + " here would make " + label(ln) + " an exact copy of " +
+        twinName + " — so it's " + nameOf(f.mark) + "."));
+    }
   }
+  if (cands.length) return best(cands);
 
-  // T5 — trial-and-error (depth 1): one choice hits a dead end.
-  for (let i = 0; i < grid.length; i++) {
-    if (grid[i] !== EMPTY) continue;
+  // T5 — trial-and-error (depth 1): one choice hits a dead end. Expensive, so
+  // test cells nearest the focus first and stop at the first success.
+  const empties = [];
+  for (let i = 0; i < grid.length; i++) if (grid[i] === EMPTY) empties.push(i);
+  empties.sort((a, b) => dist(a) - dist(b) || a - b);
+  for (const i of empties) {
     for (const m of MARKS) {
       const trial = cloneGrid(grid);
       trial[i] = m;
       if (propagate(trial, size, 4).contradiction) {
-        return mk(i, opposite(m), 5,
-          "Try " + nameOf(m) + " here and the logic soon hits a dead end — so it must be " + nameOf(opposite(m)) + ".");
+        const ln = lines[rowOf(i, size)];
+        return mk(i, opposite(m), 5, "trial", ln, [],
+          "No simple rule applies right now. Pick the highlighted cell, imagine an " + nameOf(m) + " there, and follow the consequences.",
+          "Imagine " + nameOf(m) + " here: following the rules soon breaks one — so this cell must be " + nameOf(opposite(m)) + ".");
       }
     }
   }
 
   return null;
+}
+
+/** Back-compat wrapper: the simplest next deduction in reading order. */
+function hintDeduction(grid, size) {
+  return nextHint(grid, size, null);
 }
 
 /* -------------------------------------------------------------------- */
@@ -648,6 +724,6 @@ if (typeof module !== "undefined" && module.exports) {
     applyT1, applyT2, applyT3, applyT4, propagate,
     trialSolve, solve, propagateSafe, pickBranchCell,
     countSolutions, isUniqueBounded, BUDGET_EXCEEDED,
-    hintDeduction,
+    hintDeduction, nextHint,
   };
 }
