@@ -246,7 +246,11 @@ body {
 .cell.clue .mark { font-weight: 700; text-shadow: 0 0 0.4px var(--graphite); }
 
 /* the mark element draws in by hand */
-.cell .mark { display: inline-block; }
+/* Caveat is slanted: its X/O ink overhangs the glyph's box by ~0.18em on the
+   right. Safari clips a transformed (animating) element to its box, which cut
+   the right edge off freshly placed marks. The right padding makes the box
+   contain the ink, and also centres the ink in the cell. */
+.cell .mark { display: inline-block; padding-right: 0.2em; }
 .cell .mark.draw { animation: drawIn 0.2s ease-out; }
 @keyframes drawIn {
   from { transform: scale(0.6) rotate(-8deg); opacity: 0; }

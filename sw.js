@@ -1,7 +1,7 @@
 /* sw.js — Tic-Tac-Logic service worker.
  * Cache-first app shell. Bump CACHE_NAME on every deploy so clients update.
  */
-const CACHE_NAME = "tictaclogic-v2";
+const CACHE_NAME = "tictaclogic-v3";
 
 const SHELL = [
   ".",
@@ -19,7 +19,11 @@ const SHELL = [
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
-    caches.open(CACHE_NAME).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())
+    // cache: "reload" bypasses the browser's HTTP cache, so a new version
+    // never gets seeded with stale copies of the previous deploy's files
+    caches.open(CACHE_NAME)
+      .then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: "reload" }))))
+      .then(() => self.skipWaiting())
   );
 });
 
