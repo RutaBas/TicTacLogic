@@ -832,7 +832,9 @@
   function leaveGameScreen() {
     hideOverlay();
     clearTimeout(violationTimer);
-    saveGame(); // no-op once won
+    // only an on-screen game needs saving; from a menu it was already saved
+    // on the way out, and re-saving would add menu time to its clock
+    if (document.getElementById("game-screen").classList.contains("active")) saveGame();
     stopTimer();
   }
 
@@ -904,9 +906,6 @@
   }
 
   function startLevel(size, n) {
-    // like startNewGame: leaving an unfinished FREE game breaks its streak
-    var prev = lsGet(KEY_SAVE, null);
-    if (prev && prev.cells && prev.mode !== "level") recordAbandon(prev.size);
     var parsed = null, r = null;
     try {
       parsed = gridFromString(LEVELS[size][n - 1]);
@@ -918,6 +917,9 @@
       document.getElementById("ov-dismiss").addEventListener("click", function () { openPack(size); });
       return;
     }
+    // like startNewGame: leaving an unfinished FREE game breaks its streak
+    var prev = lsGet(KEY_SAVE, null);
+    if (prev && prev.cells && prev.mode !== "level") recordAbandon(prev.size);
     hideOverlay();
     loadPuzzle({
       size: size, clues: parsed.grid, solution: r.grid,
@@ -990,7 +992,9 @@
   function openTutorial(k) {
     clearTimeout(violationTimer);
     stopTimer();
-    saveGame();
+    // only an on-screen game needs saving; from a menu it was already saved
+    // on the way out, and re-saving would add menu time to its clock
+    if (document.getElementById("game-screen").classList.contains("active")) saveGame();
     hideOverlay();
     tut = { k: k || 0 };
     renderTutorial();
