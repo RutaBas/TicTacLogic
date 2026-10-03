@@ -72,8 +72,7 @@ offer **Levels** and **Next level**.
 writes **`levels.js`**. The game never generates levels at runtime.
 
 For each size and tier k (1–4):
-1. Deterministic seeds: `seedFor` over the string
-   `"level-" + size + "-tier-" + k + "-cand-" + c` (via `hashString`).
+1. Deterministic seeds: `mulberry32(hashString("level-" + size + "-tier-" + k + "-cand-" + c))`.
 2. Build a complete grid (`buildCompleteGrid`), then carve with a technique cap:
    a clue is removed only if pure deduction limited to tiers ≤ k still
    completes the board (`propagate(grid, size, k)` reaches a complete,
