@@ -283,6 +283,12 @@
   }
   function clearSave() { lsDel(KEY_SAVE); }
 
+  /** Save only when the game is actually on screen. From a menu it was already
+   *  saved on the way out, and re-saving would add menu time to its clock. */
+  function saveIfPlaying() {
+    if (document.getElementById("game-screen").classList.contains("active")) saveGame();
+  }
+
   function continueSaved() {
     var save = lsGet(KEY_SAVE, null);
     if (!save || !save.cells) return;
@@ -870,8 +876,8 @@
       '<div class="win-stars" aria-label="' + stars + ' of 3 stars">' + row + '</div>' +
       '<p>' + size + " × " + size + " · " + game.label + " · <strong>" + fmtTime(game.finalElapsedMs) + "</strong>" +
       (newBest ? " · a new best!" : "") +
-      "<br>" + (game.hintsUsed ? "★ for no hints — you used " + game.hintsUsed : "★ no hints") +
-      "<br>" + (game.mistakes ? "★ for no mistakes — " + game.mistakes + " flagged" : "★ no mistakes") +
+      "<br>" + (game.hintsUsed ? "☆ no-hints star — you used " + game.hintsUsed : "★ no hints") +
+      "<br>" + (game.mistakes ? "☆ no-mistakes star — " + game.mistakes + " flagged" : "★ no mistakes") +
       (moreStars ? "<br>more stars than last time!" : "") +
       (n === LEVELS_PER_PACK ? "<br><strong>That's the whole pack — well done!</strong>" : "") + '</p>' +
       '<div class="share-row">' +
@@ -893,9 +899,7 @@
   function leaveGameScreen() {
     hideOverlay();
     clearTimeout(violationTimer);
-    // only an on-screen game needs saving; from a menu it was already saved
-    // on the way out, and re-saving would add menu time to its clock
-    if (document.getElementById("game-screen").classList.contains("active")) saveGame();
+    saveIfPlaying();
     stopTimer();
   }
 
@@ -1053,9 +1057,7 @@
   function openTutorial(k) {
     clearTimeout(violationTimer);
     stopTimer();
-    // only an on-screen game needs saving; from a menu it was already saved
-    // on the way out, and re-saving would add menu time to its clock
-    if (document.getElementById("game-screen").classList.contains("active")) saveGame();
+    saveIfPlaying();
     hideOverlay();
     tut = { k: k || 0 };
     renderTutorial();
@@ -1263,8 +1265,8 @@
    * boot
    * ======================================================================= */
   // persist across tab close / backgrounding
-  window.addEventListener("pagehide", saveGame);
-  document.addEventListener("visibilitychange", function () { if (document.hidden) saveGame(); });
+  window.addEventListener("pagehide", saveIfPlaying);
+  document.addEventListener("visibilitychange", function () { if (document.hidden) saveIfPlaying(); });
 
   function applyTheme() {
     document.body.classList.toggle("dark", getSettings().dark);
