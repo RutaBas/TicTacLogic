@@ -17,6 +17,7 @@
   var KEY_SAVE = "tictaclogic.saveState";
   var KEY_STATS = "tictaclogic.stats";
   var KEY_SETTINGS = "tictaclogic.settings";
+  var KEY_LEVELS = "tictaclogic.levels"; // { "6": { "12": {stars, bestMs} } }
 
   function lsGet(key, fallback) {
     try { var v = localStorage.getItem(key); return v == null ? fallback : JSON.parse(v); }
@@ -80,6 +81,19 @@
     return id;
   }
 
+  /* ---- level packs (rules live in progress.js; data in levels.js) ---- */
+  function getLevelProgress() { return lsGet(KEY_LEVELS, {}); }
+  function packOf(size) { return getLevelProgress()[size] || {}; }
+  function hasLevels(size) {
+    return typeof LEVELS !== "undefined" && !!LEVELS && Array.isArray(LEVELS[size]) &&
+      LEVELS[size].length === LEVELS_PER_PACK;
+  }
+  function starString(k) {
+    var s = "";
+    for (var i = 0; i < 3; i++) s += i < k ? "★" : "☆";
+    return s;
+  }
+
   var SIZES = [6, 8, 10, 12, 14];
   var FLAVOR = {
     6: "a coffee break",
@@ -98,7 +112,7 @@
    * Screens + overlay
    * ======================================================================= */
   function showScreen(name) {
-    ["start-screen", "game-screen", "tutorial-screen"].forEach(function (id) {
+    ["start-screen", "game-screen", "tutorial-screen", "levels-screen", "pack-screen"].forEach(function (id) {
       document.getElementById(id).classList.toggle("active", id === name + "-screen");
     });
   }
@@ -133,10 +147,12 @@
       var mins = Math.floor((save.elapsedMs || 0) / 60000);
       var secs = Math.floor(((save.elapsedMs || 0) % 60000) / 1000);
       var t = mins + ":" + (secs < 10 ? "0" : "") + secs;
+      var what = save.mode === "level"
+        ? "Level " + save.level + " · " + tierName(save.level)
+        : "needs: " + (save.label || "logic");
       html += '<div class="continue-card" id="continue-card">' +
         '<div><div class="cc-main">Continue</div>' +
-        '<div class="cc-sub">' + save.size + " × " + save.size + " · " + t +
-        " · needs: " + (save.label || "logic") + '</div></div>' +
+        '<div class="cc-sub">' + save.size + " × " + save.size + " · " + what + " · " + t + '</div></div>' +
         '<div class="cc-arrow">→</div></div>';
     }
 
@@ -145,6 +161,19 @@
       html += '<div class="learn-card" id="learn-card">' +
         '<div><div class="lc-main">New here? Learn to play</div>' +
         '<div class="lc-sub">a 2-minute walkthrough of the three rules</div></div>' +
+        '<div class="cc-arrow">→</div></div>';
+    }
+
+    var packs = SIZES.filter(hasLevels);
+    if (packs.length) {
+      var totSolved = 0, totStars = 0;
+      packs.forEach(function (n) {
+        var s = packSummary(packOf(n)); totSolved += s.solved; totStars += s.stars;
+      });
+      html += '<div class="levels-card" id="levels-card">' +
+        '<div><div class="lc-main">Levels</div>' +
+        '<div class="lc-sub">' + totSolved + " / " + packs.length * LEVELS_PER_PACK +
+        " solved · ★ " + totStars + '</div></div>' +
         '<div class="cc-arrow">→</div></div>';
     }
 
@@ -174,6 +203,8 @@
     if (cc) cc.addEventListener("click", continueSaved);
     var lc = document.getElementById("learn-card");
     if (lc) lc.addEventListener("click", function () { openTutorial(0); });
+    var lv = document.getElementById("levels-card");
+    if (lv) lv.addEventListener("click", openLevels);
     // footer modals
     Array.prototype.forEach.call(el.querySelectorAll(".footer a"), function (a) {
       a.addEventListener("click", function () { openModal(a.dataset.modal); });
@@ -186,7 +217,7 @@
   function startNewGame(size) {
     // starting a fresh puzzle abandons any unfinished saved game (breaks its streak)
     var prev = lsGet(KEY_SAVE, null);
-    if (prev && prev.cells) recordAbandon(prev.size);
+    if (prev && prev.cells && prev.mode !== "level") recordAbandon(prev.size);
 
     showOverlay('<div class="spinner">generating<span class="dot">.</span>' +
       '<span class="dot">.</span><span class="dot">.</span></div>' +
@@ -221,8 +252,11 @@
       size: puzzle.size,
       label: puzzle.label,
       maxTier: puzzle.maxTier,
+      mode: puzzle.mode || "free",
+      level: puzzle.level || null,
       moves: [],
       hintsUsed: 0,
+      mistakes: 0,
       startTime: Date.now(),
       finalElapsedMs: 0,
       over: false,
@@ -243,6 +277,7 @@
       solution: gridToString(game.state.solution, game.size),
       elapsedMs: elapsedMs(),
       hintsUsed: game.hintsUsed || 0,
+      mode: game.mode, level: game.level, mistakes: game.mistakes || 0,
       savedAt: Date.now(),
     });
   }
@@ -258,7 +293,8 @@
     state.cells = gridFromString(save.cells).grid;
     game = {
       state: state, size: save.size, label: save.label, maxTier: save.maxTier,
-      moves: [], hintsUsed: save.hintsUsed || 0,
+      mode: save.mode || "free", level: save.level || null,
+      moves: [], hintsUsed: save.hintsUsed || 0, mistakes: save.mistakes || 0,
       startTime: Date.now() - (save.elapsedMs || 0), // resume the clock
       finalElapsedMs: 0, over: false,
     };
@@ -319,7 +355,10 @@
       '<button class="home-btn" id="btn-home" aria-label="Home">‹ Home</button>' +
       '<span class="hud-title">Tic-Tac-Logic</span>' +
       '<span class="hud-timer" id="hud-timer">0:00</span></div>';
-    html += '<div class="hud-badge">' + game.size + " × " + game.size + ' · needs: ' + game.label + '</div>';
+    var badge = game.mode === "level"
+      ? game.size + " × " + game.size + " · Level " + game.level + " · " + game.label
+      : game.size + " × " + game.size + " · needs: " + game.label;
+    html += '<div class="hud-badge">' + badge + '</div>';
     html += '<div class="hud-progress" id="hud-progress">' + counts.filled + " / " + counts.total + '</div>';
     html += '</div>';
 
@@ -785,6 +824,107 @@
     document.getElementById("ov-home").addEventListener("click", goHome);
     document.getElementById("ov-next").addEventListener("click", function () { startNewGame(game.size); });
     document.getElementById("ov-look").addEventListener("click", hideOverlay);
+  }
+
+  /* ======================================================================= *
+   * LEVEL PACKS — 40 fixed levels per size (levels.js), 4 tiers of 10.
+   * ======================================================================= */
+  function leaveGameScreen() {
+    hideOverlay();
+    clearTimeout(violationTimer);
+    saveGame(); // no-op once won
+    stopTimer();
+  }
+
+  function openLevels() {
+    leaveGameScreen();
+    renderLevels();
+    showScreen("levels");
+  }
+
+  function renderLevels() {
+    var el = document.getElementById("levels-screen");
+    var html = '<div class="screen-top">' +
+      '<button class="home-btn" id="lv-home">‹ Home</button>' +
+      '<h2 class="screen-title">Levels</h2><span></span></div>';
+    html += '<div class="size-list">';
+    SIZES.filter(hasLevels).forEach(function (n) {
+      var s = packSummary(packOf(n));
+      html += '<div class="size-btn pack-btn" data-size="' + n + '">' +
+        '<span class="sb-size">' + n + " × " + n + '</span>' +
+        '<span class="sb-flavor">' + s.solved + " / " + LEVELS_PER_PACK + " · ★ " + s.stars +
+        " / " + LEVELS_PER_PACK * 3 + '</span></div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+    document.getElementById("lv-home").addEventListener("click", function () {
+      renderStart(); showScreen("start");
+    });
+    Array.prototype.forEach.call(el.querySelectorAll(".pack-btn"), function (b) {
+      b.addEventListener("click", function () { openPack(parseInt(b.dataset.size, 10)); });
+    });
+  }
+
+  function openPack(size) {
+    leaveGameScreen();
+    renderPack(size);
+    showScreen("pack");
+  }
+
+  function renderPack(size) {
+    var pack = packOf(size);
+    var el = document.getElementById("pack-screen");
+    var nextUp = -1;
+    for (var k = 1; k <= LEVELS_PER_PACK; k++) {
+      if (!pack[k] && isUnlocked(pack, k)) { nextUp = k; break; }
+    }
+    var html = '<div class="screen-top">' +
+      '<button class="home-btn" id="pk-back">‹ Levels</button>' +
+      '<h2 class="screen-title">' + size + " × " + size + '</h2><span></span></div>';
+    for (var t = 0; t < TIER_NAMES.length; t++) {
+      html += '<div class="section-label on-paper">' + TIER_NAMES[t] + '</div><div class="level-grid">';
+      for (var n = t * LEVELS_PER_TIER + 1; n <= (t + 1) * LEVELS_PER_TIER; n++) {
+        var res = pack[n];
+        var open = isUnlocked(pack, n);
+        html += '<button class="level-btn' + (res ? " solved" : "") + (n === nextUp ? " next" : "") +
+          (open ? "" : " locked") + '" data-n="' + n + '"' + (open ? "" : " disabled") +
+          ' aria-label="Level ' + n + (open ? "" : ", locked") + '">' +
+          '<span class="lv-num">' + n + '</span>' +
+          (res ? '<span class="lv-stars">' + starString(res.stars) + '</span>'
+               : open ? "" : '<span class="lv-lock">locked</span>') +
+          '</button>';
+      }
+      html += '</div>';
+    }
+    el.innerHTML = html;
+    document.getElementById("pk-back").addEventListener("click", function () { renderLevels(); showScreen("levels"); });
+    Array.prototype.forEach.call(el.querySelectorAll(".level-btn:not(.locked)"), function (b) {
+      b.addEventListener("click", function () { startLevel(size, parseInt(b.dataset.n, 10)); });
+    });
+  }
+
+  function startLevel(size, n) {
+    // like startNewGame: leaving an unfinished FREE game breaks its streak
+    var prev = lsGet(KEY_SAVE, null);
+    if (prev && prev.cells && prev.mode !== "level") recordAbandon(prev.size);
+    var parsed = null, r = null;
+    try {
+      parsed = gridFromString(LEVELS[size][n - 1]);
+      r = solve(parsed.grid, size, { maxTrialDepth: 0 });
+    } catch (e) { r = null; }
+    if (!r || !r.solved) {
+      showOverlay('<h2>Hmm.</h2><p>Level ' + n + ' could not be loaded.</p>' +
+        '<button class="btn" id="ov-dismiss">Back</button>');
+      document.getElementById("ov-dismiss").addEventListener("click", function () { openPack(size); });
+      return;
+    }
+    hideOverlay();
+    loadPuzzle({
+      size: size, clues: parsed.grid, solution: r.grid,
+      maxTier: r.maxTier, label: tierName(n), id: null, seed: null,
+      mode: "level", level: n,
+    });
+    showScreen("game");
   }
 
   /* ======================================================================= *

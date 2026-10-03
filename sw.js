@@ -1,7 +1,7 @@
 /* sw.js — Tic-Tac-Logic service worker.
  * Cache-first app shell. Bump CACHE_NAME on every deploy so clients update.
  */
-const CACHE_NAME = "tictaclogic-v5";
+const CACHE_NAME = "tictaclogic-v6";
 
 const SHELL = [
   ".",
@@ -10,6 +10,8 @@ const SHELL = [
   "board.js",
   "solver.js",
   "generator.js",
+  "progress.js",
+  "levels.js",
   "ui.js",
   "manifest.json",
   "icons/icon-180.png",
