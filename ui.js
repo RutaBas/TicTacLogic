@@ -389,8 +389,18 @@
     document.getElementById("btn-clear").addEventListener("click", clearBoard);
     document.getElementById("btn-hint").addEventListener("click", giveHint);
     document.getElementById("btn-restart").addEventListener("click", restartGame);
-    document.getElementById("btn-won-home").addEventListener("click", goHome);
-    document.getElementById("btn-won-next").addEventListener("click", function () { startNewGame(game.size); });
+    var wonHome = document.getElementById("btn-won-home"), wonNext = document.getElementById("btn-won-next");
+    if (game.mode === "level") {
+      var lvSize = game.size, lvN = game.level;
+      wonHome.textContent = "Levels";
+      wonHome.addEventListener("click", function () { openPack(lvSize); });
+      wonNext.textContent = "Next level";
+      wonNext.hidden = lvN >= LEVELS_PER_PACK;
+      wonNext.addEventListener("click", function () { startLevel(lvSize, lvN + 1); });
+    } else {
+      wonHome.addEventListener("click", goHome);
+      wonNext.addEventListener("click", function () { startNewGame(game.size); });
+    }
     refreshControls();
   }
 
@@ -449,12 +459,12 @@
       }
     });
     violationTimer = setTimeout(function () {
-      if (game && document.getElementById("board")) updateViolations();
+      if (game && document.getElementById("board")) updateViolations(true);
     }, VIOLATION_DELAY);
   }
 
   var prevBad = new Set();
-  function updateViolations() {
+  function updateViolations(countMistakes) {
     clearTimeout(violationTimer);
     var bad = findViolations(game.state.cells, game.size);
     var board = document.getElementById("board");
@@ -466,16 +476,22 @@
       }
     });
     // mark offending cells; newly-offending ones shake once
+    var fresh = false;
     bad.forEach(function (i) {
       var n = board.querySelector('[data-i="' + i + '"]');
       if (!n) return;
       n.classList.add("bad");
       if (!prevBad.has(i)) {
+        fresh = true;
         n.classList.add("shake");
         (function (node) { setTimeout(function () { node.classList.remove("shake"); }, 320); })(n);
       }
     });
     prevBad = bad;
+    // a rule break the player actually SAW costs the "no mistakes" star. Only
+    // real flag events count (deferred tap check, hint/fill) — not board
+    // rebuilds on Continue/Clear, and not undo.
+    if (countMistakes && fresh && !game.over) game.mistakes = (game.mistakes || 0) + 1;
   }
 
   function renderCell(i, animate) {
@@ -559,6 +575,7 @@
     clearPlayerMarks(game.state);
     game.moves = [];
     game.hintsUsed = 0;
+    game.mistakes = 0;
     game.over = false;
     game.startTime = Date.now();
     startTimer();
@@ -642,13 +659,14 @@
       if (hint.stage === 2) { fillHint(); return; }
     }
     clearHint();
-    updateViolations(); // a hint should never wait on the deferred mistake flag
+    updateViolations(true); // a hint should never wait on the deferred mistake flag
 
     // a mistake comes first: no deduction is trustworthy on top of a wrong mark
     var w = findWrongMark();
     if (w !== -1) {
       hint = { stage: 2, i: w, mark: EMPTY, cells: [], fix: true };
       game.hintsUsed = (game.hintsUsed || 0) + 1;
+      game.mistakes = (game.mistakes || 0) + 1; // a wrong mark the player left in
       addHintClass(w, "hint");
       setHintText("The " + (game.state.cells[w] === X ? "X" : "O") + " at " + cellName(w) +
         " doesn't fit the solution. Press again to clear it.");
@@ -690,7 +708,7 @@
     updateProgress();
     refreshControls();
     saveGame();
-    if (!checkWin()) updateViolations();
+    if (!checkWin()) updateViolations(true);
   }
 
   /* ======================================================================= *
@@ -711,12 +729,25 @@
     clearSave();
 
     var settings = getSettings();
-    var ss = recordWin(game.size, game.label, game.finalElapsedMs);
     if (settings.haptics && navigator.vibrate) { try { navigator.vibrate([40, 60, 40]); } catch (e) {} }
     if (settings.sound) playRustle();
-
     drawWinStroke();   // a red-pencil stroke sweeps across the finished grid
     bounceTitle();     // the title gives one happy bounce
+
+    if (game.mode === "level") {
+      // levels keep their own progress and never touch free-play stats
+      var stars = computeStars(game.hintsUsed || 0, game.mistakes || 0);
+      var all = getLevelProgress();
+      var pack = all[game.size] || {};
+      var before = pack[game.level] || null;
+      pack[game.level] = mergeResult(before, stars, game.finalElapsedMs);
+      all[game.size] = pack;
+      lsSet(KEY_LEVELS, all);
+      setTimeout(function () { if (game && game.over) showLevelWinOverlay(stars, before); }, 720);
+      return true;
+    }
+
+    var ss = recordWin(game.size, game.label, game.finalElapsedMs);
     setTimeout(function () { if (game && game.over) showWinOverlay(ss); }, 720); // let the stroke land first
     return true;
   }
@@ -823,6 +854,36 @@
     document.getElementById("ov-share").addEventListener("click", function () { copyShare(this); });
     document.getElementById("ov-home").addEventListener("click", goHome);
     document.getElementById("ov-next").addEventListener("click", function () { startNewGame(game.size); });
+    document.getElementById("ov-look").addEventListener("click", hideOverlay);
+  }
+
+  function showLevelWinOverlay(stars, before) {
+    var n = game.level, size = game.size;
+    var row = "";
+    for (var i = 0; i < 3; i++) {
+      row += '<span class="win-star' + (i < stars ? " on" : "") +
+        '" style="animation-delay:' + (0.1 + i * 0.25) + 's">★</span>';
+    }
+    var newBest = before && before.bestMs && game.finalElapsedMs < before.bestMs;
+    var moreStars = before && stars > before.stars;
+    showOverlay('<h2>Level ' + n + ' done!</h2>' +
+      '<div class="win-stars" aria-label="' + stars + ' of 3 stars">' + row + '</div>' +
+      '<p>' + size + " × " + size + " · " + game.label + " · <strong>" + fmtTime(game.finalElapsedMs) + "</strong>" +
+      (newBest ? " · a new best!" : "") +
+      "<br>" + (game.hintsUsed ? "★ for no hints — you used " + game.hintsUsed : "★ no hints") +
+      "<br>" + (game.mistakes ? "★ for no mistakes — " + game.mistakes + " flagged" : "★ no mistakes") +
+      (moreStars ? "<br>more stars than last time!" : "") +
+      (n === LEVELS_PER_PACK ? "<br><strong>That's the whole pack — well done!</strong>" : "") + '</p>' +
+      '<div class="share-row">' +
+      '<button class="btn" id="ov-replay">Replay</button>' +
+      '<button class="btn" id="ov-levels">Levels</button>' +
+      (n < LEVELS_PER_PACK ? '<button class="btn primary" id="ov-next-level">Next level</button>' : '') +
+      '</div>' +
+      '<button class="link-btn" id="ov-look">admire the board</button>');
+    document.getElementById("ov-replay").addEventListener("click", function () { startLevel(size, n); });
+    document.getElementById("ov-levels").addEventListener("click", function () { openPack(size); });
+    var nx = document.getElementById("ov-next-level");
+    if (nx) nx.addEventListener("click", function () { startLevel(size, n + 1); });
     document.getElementById("ov-look").addEventListener("click", hideOverlay);
   }
 

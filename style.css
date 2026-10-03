@@ -477,6 +477,14 @@ body {
 .level-btn .lv-lock { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--label-muted); }
 .level-btn.next { border: 2px solid var(--red-pencil); }
 .level-btn.locked { opacity: 0.4; cursor: default; box-shadow: none; }
+.win-stars { display: flex; justify-content: center; gap: var(--s2); font-size: 40px; line-height: 1; margin: var(--s1) 0 var(--s2); }
+.win-star { color: var(--rule-line); }
+.win-star.on { color: var(--amber); animation: starPop 0.45s ease both; }
+@keyframes starPop {
+  0%   { transform: scale(0) rotate(-30deg); opacity: 0; }
+  70%  { transform: scale(1.25) rotate(8deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
 
 /* ========================================================================= *
  * DARK THEME — "night desk lamp": warm dark paper, dimmed bluish ruling,
