@@ -415,6 +415,7 @@ body {
   padding: var(--s2) 0; border-bottom: 1px solid var(--rule-line);
   font-family: 'Karla'; font-size: 15px; color: var(--graphite);
 }
+.setting-value { font-size: 14px; color: var(--text-2nd); }
 .toggle {
   width: 46px; height: 26px; border-radius: 13px; border: 1px solid var(--rule-line);
   background: var(--paper); position: relative; cursor: pointer; padding: 0;

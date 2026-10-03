@@ -1002,7 +1002,24 @@
       row("dark", "Dark mode", s.dark) +
       row("sound", "Sound", s.sound) +
       row("haptics", "Haptics", s.haptics) +
+      '<div class="setting-row"><span>Version</span>' +
+      '<span class="setting-value" id="app-version">…</span></div>' +
       '<button class="btn" id="ov-close">Close</button>';
+  }
+
+  /* The installed version = the service worker's cache name (sw.js CACHE_NAME,
+   * e.g. "tictaclogic-v4"). sw.js deletes older caches on activate, so the
+   * newest one present is the version this device is running. Read from there
+   * so the number lives in exactly one place. */
+  function showAppVersion() {
+    var el = document.getElementById("app-version");
+    if (!el) return;
+    if (!window.caches) { el.textContent = "not installed"; return; }
+    caches.keys().then(function (keys) {
+      var nums = keys.map(function (k) { var m = /^tictaclogic-v(\d+)$/.exec(k); return m ? +m[1] : 0; })
+        .filter(Boolean);
+      el.textContent = nums.length ? "v" + Math.max.apply(null, nums) : "not installed";
+    }, function () { el.textContent = "unknown"; });
   }
 
   function openModal(which) {
@@ -1022,6 +1039,7 @@
       showOverlay(renderStatsHtml());
     } else {
       showOverlay(renderSettingsHtml());
+      showAppVersion();
       Array.prototype.forEach.call(document.querySelectorAll("#overlay-panel .toggle"), function (t) {
         t.addEventListener("click", function () {
           var key = t.dataset.set;
