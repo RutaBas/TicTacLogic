@@ -61,5 +61,34 @@ console.log("Levels 2: progress rules");
   ok(P.packSummary(undefined).solved === 0, "empty pack summary");
 }
 
+/* 3 — the frozen level data */
+console.log("Levels 3: level data");
+{
+  const { LEVELS } = require("../levels.js");
+  const seen = new Set();
+  for (const size of [6, 8, 10, 12, 14]) {
+    const list = LEVELS[size];
+    ok(Array.isArray(list) && list.length === P.LEVELS_PER_PACK, size + "x" + size + ": 40 levels");
+    if (!Array.isArray(list)) continue;
+    let prevClues = Infinity;
+    list.forEach((str, k) => {
+      const n = k + 1;
+      const parsed = B.gridFromString(str);
+      ok(parsed.size === size, size + "x" + size + " L" + n + ": right size");
+      const r = S.solve(parsed.grid, size, { maxTrialDepth: 0 });
+      ok(r.solved, size + "x" + size + " L" + n + ": solved by pure logic");
+      ok(r.maxTier === P.tierOf(n) + 1,
+         size + "x" + size + " L" + n + ": needs T" + (P.tierOf(n) + 1) + " (got T" + r.maxTier + ")");
+      ok(S.countSolutions(parsed.grid, size, 2) === 1, size + "x" + size + " L" + n + ": exactly one solution");
+      ok(!seen.has(str), size + "x" + size + " L" + n + ": not a duplicate");
+      seen.add(str);
+      const clues = parsed.grid.reduce((a, v) => a + (v ? 1 : 0), 0);
+      if ((n - 1) % P.LEVELS_PER_TIER === 0) prevClues = Infinity; // new section
+      ok(clues <= prevClues, size + "x" + size + " L" + n + ": clue count does not increase within its section");
+      prevClues = clues;
+    });
+  }
+}
+
 console.log("\nlevels.test.js: " + pass + " passed, " + fail + " failed");
 if (fail) process.exit(1);
