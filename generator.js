@@ -147,7 +147,21 @@ function buildCompleteGrid(size, rand, maxSteps) {
  *   - because the finished puzzle is deduction-solvable, an independent
  *     countSolutions(board,2) returns 1 essentially instantly.
  * ------------------------------------------------------------------ */
-function carvePuzzle(solution, size, rand) {
+/** True if deduction limited to tiers 1..maxTier alone completes the board. */
+function solvesWithin(clues, size, maxTier) {
+  const w = cloneGrid(clues);
+  const r = propagate(w, size, maxTier);
+  return !r.contradiction && isComplete(w);
+}
+
+/**
+ * opts.maxTier (1-4, optional): only remove a clue if deduction using tiers
+ * <= maxTier still finishes the board. Used by tools/build-levels.js to make
+ * e.g. "Doodle" levels that need nothing but the sandwich rule. Without opts
+ * the free-play behaviour is unchanged (pure T1-T4, CARVE_TRIAL_DEPTH).
+ */
+function carvePuzzle(solution, size, rand, opts) {
+  const maxTier = opts && opts.maxTier ? opts.maxTier : 0;
   const clues = cloneGrid(solution);
   const order = shuffleInPlace(
     Array.from({ length: clues.length }, (_, i) => i),
@@ -156,7 +170,10 @@ function carvePuzzle(solution, size, rand) {
   for (const i of order) {
     const saved = clues[i];
     clues[i] = EMPTY;
-    if (!solve(clues, size, { maxTrialDepth: CARVE_TRIAL_DEPTH }).solved) {
+    const stillSolvable = maxTier
+      ? solvesWithin(clues, size, maxTier)
+      : solve(clues, size, { maxTrialDepth: CARVE_TRIAL_DEPTH }).solved;
+    if (!stillSolvable) {
       clues[i] = saved; // removal broke (provable) uniqueness -> put it back
     }
   }
@@ -245,7 +262,7 @@ function generatePuzzleById(size, id, maxAttempts) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     mulberry32, hashString, seedFor, shuffleInPlace,
-    buildCompleteGrid, carvePuzzle, tierLabel,
+    buildCompleteGrid, carvePuzzle, solvesWithin, tierLabel,
     generatePuzzle, generatePuzzleById,
     BUILD_BUDGET, CARVE_TRIAL_DEPTH,
   };
