@@ -69,8 +69,11 @@ function shuffleInPlace(arr, rand) {
 /* thrown by buildCompleteGrid when its backtracking budget is exceeded */
 const BUILD_BUDGET = "BUILD_BUDGET_EXCEEDED";
 
-/* Trial depth used by the carve uniqueness oracle (see carvePuzzle). */
-const CARVE_TRIAL_DEPTH = 1;
+/* Trial depth used by the carve uniqueness oracle (see carvePuzzle).
+ * 0 = NO GUESSING: a clue is only removed if the board stays solvable by pure
+ * deduction (T1-T4: sandwich, line completions, uniqueness rule). Every puzzle
+ * is therefore logic-solvable, never needing trial and error. */
+const CARVE_TRIAL_DEPTH = 0;
 
 /* --------------------------------------------------------------------
  * buildCompleteGrid — a random COMPLETE valid solution grid.
@@ -133,18 +136,16 @@ function buildCompleteGrid(size, rand, maxSteps) {
  * remains uniquely solvable, then continue until no further cell can be removed.
  *
  * ORACLE NOTE (deliberate deviation from "countSolutions(board,2)===1"):
- * the acceptance test is `solve(board, depth 1).solved`. This is SOUND for
- * uniqueness — every cell solve() fills holds in EVERY solution, so a completed
- * solve proves exactly one solution exists — and it is BOUNDED, whereas
- * countSolutions can explode into minutes proving a hard 14x14 board unique.
- * The trade-offs, both benign:
- *   - puzzles are guaranteed solvable with at most depth-1 trial-and-error
- *     (a cell that would need deeper lookahead to remove is conservatively kept,
- *     so the board stays a touch less sparse in rare hard spots), and
- *   - because the finished puzzle is depth-1-solvable, an independent
- *     countSolutions(board,2) still returns 1 essentially instantly (its
- *     propagation solves the board with no branching) — so the spec's
- *     uniqueness verification passes and stays fast.
+ * the acceptance test is `solve(board, depth 0).solved` — pure T1-T4
+ * deduction, no trial and error. This is SOUND for uniqueness — every cell
+ * solve() fills holds in EVERY solution, so a completed solve proves exactly
+ * one solution exists — and it is BOUNDED, whereas countSolutions can explode
+ * into minutes proving a hard 14x14 board unique. The trade-offs:
+ *   - every puzzle is solvable by logic alone, never by guessing (a cell whose
+ *     removal would require trial and error is kept as a clue, so boards carry
+ *     a few more clues than the theoretical minimum), and
+ *   - because the finished puzzle is deduction-solvable, an independent
+ *     countSolutions(board,2) returns 1 essentially instantly.
  * ------------------------------------------------------------------ */
 function carvePuzzle(solution, size, rand) {
   const clues = cloneGrid(solution);
