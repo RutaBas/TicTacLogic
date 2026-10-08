@@ -31,11 +31,14 @@ for (let k = 1; k <= 4; k++) {
 /* 2 — progress rules */
 console.log("Levels 2: progress rules");
 {
-  ok(P.tierOf(1) === 0 && P.tierOf(10) === 0, "levels 1-10 are tier 0");
-  ok(P.tierOf(11) === 1 && P.tierOf(20) === 1, "levels 11-20 are tier 1");
-  ok(P.tierOf(21) === 2 && P.tierOf(31) === 3 && P.tierOf(40) === 3, "levels 21-30 tier 2, 31-40 tier 3");
-  ok(P.tierName(1) === "Doodle" && P.tierName(15) === "Homework" &&
-     P.tierName(25) === "Pop Quiz" && P.tierName(40) === "Final Exam", "tier names");
+  ok(P.LEVELS_PER_TIER === 50 && P.LEVELS_PER_PACK === 200, "50 levels per section, 200 per pack");
+  ok(P.tierOf(1) === 0 && P.tierOf(50) === 0, "levels 1-50 are tier 0");
+  ok(P.tierOf(51) === 1 && P.tierOf(100) === 1, "levels 51-100 are tier 1");
+  ok(P.tierOf(101) === 2 && P.tierOf(151) === 3 && P.tierOf(200) === 3, "levels 101-150 tier 2, 151-200 tier 3");
+  ok(P.tierName(1) === "Doodle" && P.tierName(75) === "Homework" &&
+     P.tierName(125) === "Pop Quiz" && P.tierName(200) === "Final Exam", "tier names");
+  ok(P.sectionStart(1) === 1 && P.sectionStart(99) === 51 && P.sectionStart(150) === 101 && P.sectionStart(151) === 151,
+     "sectionStart");
 
   ok(P.computeStars(0, 0) === 3, "no hints, no mistakes -> 3 stars");
   ok(P.computeStars(2, 0) === 2, "hints only -> 2 stars");
@@ -55,6 +58,14 @@ console.log("Levels 2: progress rules");
   ok(P.isUnlocked(pack, 3) && !P.isUnlocked(pack, 4), "solving N unlocks exactly N+1");
   const viaJson = JSON.parse(JSON.stringify(pack));
   ok(P.isUnlocked(viaJson, 3), "works with string keys after a localStorage round-trip");
+  ok([51, 101, 151].every((n) => P.isUnlocked(undefined, n)), "every section's first level is open (independent sections)");
+  ok(!P.isUnlocked(undefined, 52), "second level of an untouched section is locked");
+  // frontier rule: everything up to one past the furthest solved level in the section is open
+  const gappy = { 7: { stars: 2, bestMs: 1 } };
+  ok(P.isUnlocked(gappy, 3) && P.isUnlocked(gappy, 8) && !P.isUnlocked(gappy, 9),
+     "a solved level 7 opens 1-8 of its section (gaps from migration stay playable)");
+  ok(!P.isUnlocked(gappy, 52), "progress in one section does not open another");
+  ok(!P.isUnlocked({ 50: { stars: 1, bestMs: 1 } }, 52), "solving the last Doodle level does not reach into Homework");
 
   const sum = P.packSummary(pack);
   ok(sum.solved === 2 && sum.stars === 4, "pack summary counts solved levels and stars");
@@ -68,7 +79,7 @@ console.log("Levels 3: level data");
   const seen = new Set();
   for (const size of [6, 8, 10, 12, 14]) {
     const list = LEVELS[size];
-    ok(Array.isArray(list) && list.length === P.LEVELS_PER_PACK, size + "x" + size + ": 40 levels");
+    ok(Array.isArray(list) && list.length === P.LEVELS_PER_PACK, size + "x" + size + ": 200 levels");
     if (!Array.isArray(list)) continue;
     let prevClues = Infinity;
     list.forEach((str, k) => {
@@ -88,6 +99,35 @@ console.log("Levels 3: level data");
       prevClues = clues;
     });
   }
+}
+
+/* 4 — v1 boards survive, and v1 progress moves to the same boards */
+console.log("Levels 4: v1 preservation and migration");
+{
+  const L = require("../levels.js");
+  const V1 = require("../tools/levels-v1.js").LEVELS;
+  ok(L.LEVELS_VERSION === 2, "levels.js is version 2");
+  for (const size of [6, 8, 10, 12, 14]) {
+    const map = L.LEVELS_V1_MAP && L.LEVELS_V1_MAP[size];
+    ok(Array.isArray(map) && map.length === 40, size + "x" + size + ": a new number for each of the 40 v1 levels");
+    if (!Array.isArray(map)) continue;
+    V1[size].forEach((str, k) => {
+      const nn = map[k];
+      ok(L.LEVELS[size][nn - 1] === str, size + "x" + size + " v1 L" + (k + 1) + " -> L" + nn + ": same board");
+      ok(P.tierOf(nn) === Math.floor(k / 10), size + "x" + size + " v1 L" + (k + 1) + ": stays in its section");
+    });
+    ok(new Set(map).size === 40, size + "x" + size + ": v1 levels map to distinct numbers");
+  }
+
+  const oldAll = { 6: { 1: { stars: 3, bestMs: 500 }, 12: { stars: 2, bestMs: 900 } }, 8: { 40: { stars: 1, bestMs: 7 } } };
+  const migrated = P.migrateProgressV1(JSON.parse(JSON.stringify(oldAll)), L.LEVELS_V1_MAP);
+  ok(migrated.v === 2, "migrated progress is stamped v2");
+  ok(JSON.stringify(migrated[6][L.LEVELS_V1_MAP[6][0]]) === JSON.stringify({ stars: 3, bestMs: 500 }), "6x6 v1 L1 result moved with its board");
+  ok(JSON.stringify(migrated[6][L.LEVELS_V1_MAP[6][11]]) === JSON.stringify({ stars: 2, bestMs: 900 }), "6x6 v1 L12 result moved with its board");
+  ok(JSON.stringify(migrated[8][L.LEVELS_V1_MAP[8][39]]) === JSON.stringify({ stars: 1, bestMs: 7 }), "8x8 v1 L40 result moved with its board");
+  ok(Object.keys(migrated[6]).length === 2 && Object.keys(migrated[8]).length === 1, "nothing invented, nothing lost");
+  ok(P.isUnlocked(migrated[6], L.LEVELS_V1_MAP[6][0] + 1), "the level after a migrated solve is open");
+  ok(P.remapLevelV1(L.LEVELS_V1_MAP, 6, 12) === L.LEVELS_V1_MAP[6][11], "remapLevelV1 for an in-progress v1 save");
 }
 
 console.log("\nlevels.test.js: " + pass + " passed, " + fail + " failed");

@@ -82,7 +82,25 @@
   }
 
   /* ---- level packs (rules live in progress.js; data in levels.js) ---- */
-  function getLevelProgress() { return lsGet(KEY_LEVELS, {}); }
+  function getLevelProgress() {
+    var all = lsGet(KEY_LEVELS, {});
+    // saved before levels v2 (40 per pack): move each result to the new number
+    // of the same board, once, and stamp it so this never runs again
+    if (!all.v && typeof LEVELS_V1_MAP !== "undefined") {
+      all = migrateProgressV1(all, LEVELS_V1_MAP);
+      lsSet(KEY_LEVELS, all);
+    }
+    return all;
+  }
+  /** A level game saved mid-play before levels v2 carries a v1 level number. */
+  function migrateSave(save) {
+    if (save && save.mode === "level" && !save.levelsV && typeof LEVELS_V1_MAP !== "undefined") {
+      save.level = remapLevelV1(LEVELS_V1_MAP, save.size, save.level);
+      save.levelsV = LEVELS_VERSION;
+      lsSet(KEY_SAVE, save);
+    }
+    return save;
+  }
   function packOf(size) { return getLevelProgress()[size] || {}; }
   function hasLevels(size) {
     return typeof LEVELS !== "undefined" && !!LEVELS && Array.isArray(LEVELS[size]) &&
@@ -128,7 +146,7 @@
    * START SCREEN
    * ======================================================================= */
   function renderStart() {
-    var save = lsGet(KEY_SAVE, null);
+    var save = migrateSave(lsGet(KEY_SAVE, null));
     var el = document.getElementById("start-screen");
     var html = "";
     html += '<h1 class="title">Tic-Tac-Logic</h1>';
@@ -278,6 +296,7 @@
       elapsedMs: elapsedMs(),
       hintsUsed: game.hintsUsed || 0,
       mode: game.mode, level: game.level, mistakes: game.mistakes || 0,
+      levelsV: typeof LEVELS_VERSION !== "undefined" ? LEVELS_VERSION : null,
       savedAt: Date.now(),
     });
   }
@@ -290,7 +309,7 @@
   }
 
   function continueSaved() {
-    var save = lsGet(KEY_SAVE, null);
+    var save = migrateSave(lsGet(KEY_SAVE, null));
     if (!save || !save.cells) return;
     var clues = gridFromString(save.clues).grid;
     var solution = gridFromString(save.solution).grid;
@@ -399,9 +418,9 @@
     if (game.mode === "level") {
       var lvSize = game.size, lvN = game.level;
       wonHome.textContent = "Levels";
-      wonHome.addEventListener("click", function () { openPack(lvSize); });
+      wonHome.addEventListener("click", function () { openPack(lvSize, tierOf(lvN)); });
       wonNext.textContent = "Next level";
-      wonNext.hidden = lvN >= LEVELS_PER_PACK;
+      wonNext.hidden = lvN % LEVELS_PER_TIER === 0; // last level of its section
       wonNext.addEventListener("click", function () { startLevel(lvSize, lvN + 1); });
     } else {
       wonHome.addEventListener("click", goHome);
@@ -879,22 +898,23 @@
       "<br>" + (game.hintsUsed ? "☆ no-hints star — you used " + game.hintsUsed : "★ no hints") +
       "<br>" + (game.mistakes ? "☆ no-mistakes star — " + game.mistakes + " flagged" : "★ no mistakes") +
       (moreStars ? "<br>more stars than last time!" : "") +
-      (n === LEVELS_PER_PACK ? "<br><strong>That's the whole pack — well done!</strong>" : "") + '</p>' +
+      (n % LEVELS_PER_TIER === 0 ? "<br><strong>That's the whole " + game.label + " section — well done!</strong>" : "") + '</p>' +
       '<div class="share-row">' +
       '<button class="btn" id="ov-replay">Replay</button>' +
       '<button class="btn" id="ov-levels">Levels</button>' +
-      (n < LEVELS_PER_PACK ? '<button class="btn primary" id="ov-next-level">Next level</button>' : '') +
+      (n % LEVELS_PER_TIER !== 0 ? '<button class="btn primary" id="ov-next-level">Next level</button>' : '') +
       '</div>' +
       '<button class="link-btn" id="ov-look">admire the board</button>');
     document.getElementById("ov-replay").addEventListener("click", function () { startLevel(size, n); });
-    document.getElementById("ov-levels").addEventListener("click", function () { openPack(size); });
+    document.getElementById("ov-levels").addEventListener("click", function () { openPack(size, tierOf(n)); });
     var nx = document.getElementById("ov-next-level");
     if (nx) nx.addEventListener("click", function () { startLevel(size, n + 1); });
     document.getElementById("ov-look").addEventListener("click", hideOverlay);
   }
 
   /* ======================================================================= *
-   * LEVEL PACKS — 40 fixed levels per size (levels.js), 4 tiers of 10.
+   * LEVEL PACKS — 200 fixed levels per size (levels.js): 4 independent
+   * sections of 50, shown one at a time behind section tabs.
    * ======================================================================= */
   function leaveGameScreen() {
     hideOverlay();
@@ -932,39 +952,59 @@
     });
   }
 
-  function openPack(size) {
+  var KEY_PACK_TAB = "tictaclogic.packTab"; // { "6": sectionIndex } — last tab viewed
+
+  function openPack(size, tab) {
     leaveGameScreen();
-    renderPack(size);
+    renderPack(size, tab);
     showScreen("pack");
   }
 
-  function renderPack(size) {
+  function renderPack(size, tab) {
     var pack = packOf(size);
+    var tabs = lsGet(KEY_PACK_TAB, {});
+    if (tab == null) tab = tabs[size] || 0;
+    tabs[size] = tab;
+    lsSet(KEY_PACK_TAB, tabs);
+
     var el = document.getElementById("pack-screen");
-    var nextUp = -1;
-    for (var k = 1; k <= LEVELS_PER_PACK; k++) {
-      if (!pack[k] && isUnlocked(pack, k)) { nextUp = k; break; }
-    }
     var html = '<div class="screen-top">' +
       '<button class="home-btn" id="pk-back">‹ Levels</button>' +
       '<h2 class="screen-title">' + size + " × " + size + '</h2><span></span></div>';
+
+    html += '<div class="pack-tabs" role="tablist">';
     for (var t = 0; t < TIER_NAMES.length; t++) {
-      html += '<div class="section-label on-paper">' + TIER_NAMES[t] + '</div><div class="level-grid">';
-      for (var n = t * LEVELS_PER_TIER + 1; n <= (t + 1) * LEVELS_PER_TIER; n++) {
-        var res = pack[n];
-        var open = isUnlocked(pack, n);
-        html += '<button class="level-btn' + (res ? " solved" : "") + (n === nextUp ? " next" : "") +
-          (open ? "" : " locked") + '" data-n="' + n + '"' + (open ? "" : " disabled") +
-          ' aria-label="Level ' + n + (open ? "" : ", locked") + '">' +
-          '<span class="lv-num">' + n + '</span>' +
-          (res ? '<span class="lv-stars">' + starString(res.stars) + '</span>'
-               : open ? "" : '<span class="lv-lock">locked</span>') +
-          '</button>';
-      }
-      html += '</div>';
+      var done = 0;
+      for (var m = t * LEVELS_PER_TIER + 1; m <= (t + 1) * LEVELS_PER_TIER; m++) if (pack[m]) done++;
+      html += '<button class="tab-btn' + (t === tab ? " on" : "") + '" role="tab" aria-selected="' + (t === tab) +
+        '" data-t="' + t + '">' + TIER_NAMES[t] +
+        '<span class="tab-sub">' + done + " / " + LEVELS_PER_TIER + '</span></button>';
     }
+    html += '</div>';
+
+    var first = tab * LEVELS_PER_TIER + 1, last = first + LEVELS_PER_TIER - 1;
+    var nextUp = -1;
+    for (var k = first; k <= last; k++) {
+      if (!pack[k] && isUnlocked(pack, k)) { nextUp = k; break; }
+    }
+    html += '<div class="level-grid">';
+    for (var n = first; n <= last; n++) {
+      var res = pack[n];
+      var open = isUnlocked(pack, n);
+      html += '<button class="level-btn' + (res ? " solved" : "") + (n === nextUp ? " next" : "") +
+        (open ? "" : " locked") + '" data-n="' + n + '"' + (open ? "" : " disabled") +
+        ' aria-label="Level ' + n + (open ? "" : ", locked") + '">' +
+        '<span class="lv-num">' + n + '</span>' +
+        (res ? '<span class="lv-stars">' + starString(res.stars) + '</span>'
+             : open ? "" : '<span class="lv-lock">locked</span>') +
+        '</button>';
+    }
+    html += '</div>';
     el.innerHTML = html;
     document.getElementById("pk-back").addEventListener("click", function () { renderLevels(); showScreen("levels"); });
+    Array.prototype.forEach.call(el.querySelectorAll(".tab-btn"), function (b) {
+      b.addEventListener("click", function () { renderPack(size, parseInt(b.dataset.t, 10)); });
+    });
     Array.prototype.forEach.call(el.querySelectorAll(".level-btn:not(.locked)"), function (b) {
       b.addEventListener("click", function () { startLevel(size, parseInt(b.dataset.n, 10)); });
     });
@@ -979,7 +1019,7 @@
     if (!r || !r.solved) {
       showOverlay('<h2>Hmm.</h2><p>Level ' + n + ' could not be loaded.</p>' +
         '<button class="btn" id="ov-dismiss">Back</button>');
-      document.getElementById("ov-dismiss").addEventListener("click", function () { openPack(size); });
+      document.getElementById("ov-dismiss").addEventListener("click", function () { openPack(size, tierOf(n)); });
       return;
     }
     // like startNewGame: leaving an unfinished FREE game breaks its streak
