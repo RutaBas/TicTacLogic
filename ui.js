@@ -505,7 +505,7 @@
    * If that transient X broke a rule it used to flash as a mistake instantly.
    * Now, after a tap, newly-broken rules are only flagged once the player pauses
    * (VIOLATION_DELAY); rules that get FIXED clear immediately. */
-  var VIOLATION_DELAY = 650;
+  var VIOLATION_DELAY = 1000;
   var violationTimer = null;
   function scheduleViolations() {
     clearTimeout(violationTimer);
