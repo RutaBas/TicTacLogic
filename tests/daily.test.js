@@ -89,5 +89,40 @@ console.log("Daily 4: calendar");
   ok(feb.filter(Boolean).length === 28 && feb[0] === "2027-02-01", "Feb 2027 starts on a Monday, 28 days");
 }
 
+/* 5 — stats screen numbers (all derived from the records) */
+console.log("Daily 5: stats");
+{
+  // 2026-10-08 is a 10x10 day, 10-09 12x12, 10-10 14x14, 10-11 10x10 ...
+  const r = {
+    "2026-10-08": { stars: 3, bestMs: 200000, onTime: true },  // 10x10
+    "2026-10-09": { stars: 2, bestMs: 400000, onTime: true },  // 12x12
+    "2026-10-10": { stars: 3, bestMs: 600000, onTime: false }, // 14x14, late
+    "2026-10-11": { stars: 1, bestMs: 100000, onTime: true },  // 10x10
+  };
+  const s = D.dailyStats(r, "2026-10-12");
+  ok(s.solved === 4 && s.onTimePct === 75 && s.perfect === 2, "totals: solved, % on the day, perfect days");
+  ok(s.current === 1 && s.best === 2, "current and best streak");
+  ok(s.bySize[10].solved === 2 && s.bySize[10].bestMs === 100000 && s.bySize[10].avgMs === 150000, "10x10: count, best, average");
+  ok(s.bySize[12].solved === 1 && s.bySize[14].solved === 1 && s.bySize[14].bestMs === 600000, "12x12 and 14x14");
+  ok(s.stars[3] === 2 && s.stars[2] === 1 && s.stars[1] === 1, "star breakdown");
+  const e = D.dailyStats({}, "2026-10-12");
+  ok(e.solved === 0 && e.onTimePct === 0 && e.bySize[10].bestMs === 0 && e.bySize[10].avgMs === 0, "empty records give zeros");
+
+  const ms = D.streakMilestones(12, 21);
+  ok(JSON.stringify(ms.map((m) => [m.days, m.done, m.toGo])) ===
+     JSON.stringify([[3, true, 0], [7, true, 0], [30, false, 18], [100, false, null]]),
+     "milestones: earned by best streak; only the next one shows how far to go");
+
+  const hm = D.activityGrid(r, "2026-10-12", 12);
+  ok(hm.length === 84, "12 weeks x 7 days");
+  // the grid ends with the current week (Mon 2026-10-12 .. Sun 10-18); column-major, Monday first
+  ok(hm[77].key === "2026-10-12" && hm[83].key === "2026-10-18", "last column is this week, Monday first");
+  ok(hm[77 - 7 + 3].key === "2026-10-08" && hm[77 - 7 + 3].status === "on", "Thu 8 Oct solved on the day");
+  ok(hm[77 - 7 + 5].status === "late", "Sat 10 Oct solved later");
+  ok(hm[78].status === "future", "days after today are future");
+  ok(hm[0].status === "before", "days before the daily existed are marked before");
+  ok(hm[77].status === "missed", "today unsolved shows as open/missed");
+}
+
 console.log("\ndaily.test.js: " + pass + " passed, " + fail + " failed");
 if (fail) process.exit(1);

@@ -113,10 +113,80 @@ function monthGrid(year, month0) {
   return cells;
 }
 
+/* ---- stats screen: everything is derived from the records ---- */
+
+const STREAK_MILESTONES = [3, 7, 30, 100];
+
+/** Totals, streaks, per-size times and the star breakdown. Times are each day's best. */
+function dailyStats(records, todayKey) {
+  const keys = Object.keys(records);
+  const bySize = {};
+  DAILY_SIZES.forEach((n) => { bySize[n] = { solved: 0, bestMs: 0, avgMs: 0, sumMs: 0 }; });
+  const stars = { 1: 0, 2: 0, 3: 0 };
+  let onTime = 0;
+  for (const k of keys) {
+    const r = records[k];
+    if (r.onTime) onTime++;
+    stars[r.stars] = (stars[r.stars] || 0) + 1;
+    const b = bySize[dailySize(k)];
+    b.solved++;
+    b.sumMs += r.bestMs;
+    if (!b.bestMs || r.bestMs < b.bestMs) b.bestMs = r.bestMs;
+  }
+  DAILY_SIZES.forEach((n) => {
+    const b = bySize[n];
+    b.avgMs = b.solved ? Math.round(b.sumMs / b.solved) : 0;
+    delete b.sumMs;
+  });
+  return {
+    solved: keys.length,
+    onTimePct: keys.length ? Math.round(onTime / keys.length * 100) : 0,
+    perfect: stars[3],
+    current: currentStreak(records, todayKey),
+    best: bestStreak(records),
+    bySize: bySize,
+    stars: stars,
+  };
+}
+
+/** Milestones are earned by the best streak; only the next unearned one counts down. */
+function streakMilestones(current, best) {
+  let nextShown = false;
+  return STREAK_MILESTONES.map((days) => {
+    const done = best >= days;
+    let toGo = done ? 0 : null;
+    if (!done && !nextShown) { toGo = days - current; nextShown = true; }
+    return { days: days, done: done, toGo: toGo };
+  });
+}
+
+/**
+ * The last `weeks` weeks ending with the current one, column-major (one
+ * column per week, Monday first) for a GitHub-style grid. Each cell is
+ * { key, status }: "on" | "late" | "missed" | "future" | "before".
+ */
+function activityGrid(records, todayKey, weeks) {
+  const today = parseKey(todayKey);
+  const monday = addDays(todayKey, -((today.getDay() + 6) % 7));
+  let k = addDays(monday, -(weeks - 1) * 7);
+  const cells = [];
+  for (let i = 0; i < weeks * 7; i++, k = addDays(k, 1)) {
+    const r = records[k];
+    let status;
+    if (k > todayKey) status = "future";
+    else if (k < DAILY_EPOCH) status = "before";
+    else if (r) status = r.onTime ? "on" : "late";
+    else status = "missed";
+    cells.push({ key: k, status: status });
+  }
+  return cells;
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    DAILY_EPOCH, DAILY_SIZES,
+    DAILY_EPOCH, DAILY_SIZES, STREAK_MILESTONES,
     dateKey, parseKey, addDays, dayIndex, dailySize, dailyPuzzle,
     recordDaily, currentStreak, bestStreak, monthGrid,
+    dailyStats, streakMilestones, activityGrid,
   };
 }

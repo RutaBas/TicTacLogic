@@ -130,7 +130,7 @@
    * Screens + overlay
    * ======================================================================= */
   function showScreen(name) {
-    ["start-screen", "game-screen", "tutorial-screen", "levels-screen", "pack-screen", "daily-screen"].forEach(function (id) {
+    ["start-screen", "game-screen", "tutorial-screen", "levels-screen", "pack-screen", "daily-screen", "dstats-screen"].forEach(function (id) {
       document.getElementById(id).classList.toggle("active", id === name + "-screen");
     });
   }
@@ -1004,7 +1004,8 @@
     html += '<div class="daily-stats">' +
       '<div><b>' + currentStreak(rec, today) + '</b><span>streak</span></div>' +
       '<div><b>' + bestStreak(rec) + '</b><span>best streak</span></div>' +
-      '<div><b>' + solvedCount + '</b><span>solved</span></div></div>';
+      '<div><b>' + solvedCount + '</b><span>solved</span></div></div>' +
+      '<button class="link-btn" id="dl-stats">see all stats →</button>';
     html += '<div class="cal-nav">' +
       '<button class="cal-arrow" id="cal-prev" aria-label="Previous month"' + (canPrev ? "" : " disabled") + '>‹</button>' +
       '<span class="cal-title">' + new Date(dailyMonth.y, dailyMonth.m, 1)
@@ -1029,12 +1030,77 @@
     el.innerHTML = html;
     document.getElementById("dl-home").addEventListener("click", function () { renderStart(); showScreen("start"); });
     document.getElementById("dl-today").addEventListener("click", function () { startDaily(today); });
+    document.getElementById("dl-stats").addEventListener("click", openDailyStats);
     document.getElementById("cal-prev").addEventListener("click", function () { stepMonth(-1); });
     document.getElementById("cal-next").addEventListener("click", function () { stepMonth(1); });
     Array.prototype.forEach.call(el.querySelectorAll("button.cal-cell"), function (b) {
       b.addEventListener("click", function () { startDaily(b.dataset.k); });
     });
   }
+  /* ---- Daily stats screen (numbers come from daily.js dailyStats) ---- */
+  function openDailyStats() {
+    renderDailyStats();
+    showScreen("dstats");
+  }
+
+  function renderDailyStats() {
+    var today = dateKey(new Date()), rec = getDaily(), st = dailyStats(rec, today);
+    var nudge = rec[today] ? "today’s done — see you tomorrow"
+      : st.current ? "solve today to make it " + (st.current + 1)
+      : "solve today to start a streak";
+
+    var html = '<div class="screen-top">' +
+      '<button class="home-btn" id="ds-back">‹ Daily</button>' +
+      '<h2 class="screen-title">Daily stats</h2><span></span></div>';
+
+    html += '<div class="ds-hero"><span class="ds-flame" aria-hidden="true">🔥</span><div>' +
+      '<div><span class="ds-big">' + st.current + '</span> day streak</div>' +
+      '<div class="ds-hero-sub">best streak: ' + st.best + ' · ' + nudge + '</div></div></div>';
+
+    html += '<div class="daily-stats">' +
+      '<div><b>' + st.solved + '</b><span>solved</span></div>' +
+      '<div><b>' + st.onTimePct + '%</b><span>on the day</span></div>' +
+      '<div><b>' + st.perfect + '</b><span>perfect ★★★</span></div></div>';
+
+    html += '<div class="section-label on-paper">Last 12 weeks</div><div class="ds-card">' +
+      '<div class="ds-grid" role="img" aria-label="Daily activity over the last 12 weeks">';
+    activityGrid(rec, today, 12).forEach(function (c) {
+      html += '<span class="ds-' + c.status + '" title="' + c.key + '"></span>';
+    });
+    html += '</div><div class="ds-legend">' +
+      '<span><i class="ds-on"></i> on the day</span><span><i class="ds-late"></i> later</span>' +
+      '<span><i class="ds-missed"></i> missed</span></div></div>';
+
+    html += '<div class="section-label on-paper">By board size</div><div class="ds-card ds-table">' +
+      '<div class="ds-row ds-head"><span></span><span>solved</span><span>best</span><span>average</span></div>';
+    DAILY_SIZES.forEach(function (n) {
+      var b = st.bySize[n];
+      html += '<div class="ds-row"><b>' + n + " × " + n + '</b><span>' + b.solved + '</span>' +
+        '<span>' + fmtOrDash(b.bestMs) + '</span><span>' + fmtOrDash(b.avgMs) + '</span></div>';
+    });
+    html += '</div>';
+
+    var maxStars = Math.max(1, st.stars[3], st.stars[2], st.stars[1]);
+    html += '<div class="section-label on-paper">Stars</div><div class="ds-card">';
+    [3, 2, 1].forEach(function (k) {
+      html += '<div class="ds-starrow"><span class="ds-stars">' + starString(k) + '</span>' +
+        '<span class="ds-bar"><span style="width:' + Math.round(st.stars[k] / maxStars * 100) + '%"></span></span>' +
+        '<span class="ds-count">' + st.stars[k] + '</span></div>';
+    });
+    html += '</div>';
+
+    html += '<div class="section-label on-paper">Streak milestones</div><div class="ds-miles">';
+    streakMilestones(st.current, st.best).forEach(function (m) {
+      html += '<div class="ds-mile' + (m.done ? " done" : "") + '"><b>' + m.days + '</b><span>' +
+        (m.done ? "days ✓" : m.toGo != null ? m.toGo + " to go" : "locked") + '</span></div>';
+    });
+    html += '</div>';
+
+    var el = document.getElementById("dstats-screen");
+    el.innerHTML = html;
+    document.getElementById("ds-back").addEventListener("click", function () { renderDaily(); showScreen("daily"); });
+  }
+
   function stepMonth(delta) {
     var d = new Date(dailyMonth.y, dailyMonth.m + delta, 1);
     dailyMonth = { y: d.getFullYear(), m: d.getMonth() };
