@@ -207,10 +207,14 @@
       packs.forEach(function (n) {
         var s = packSummary(packOf(n)); totSolved += s.solved; totStars += s.stars;
       });
+      var totLevels = packs.length * LEVELS_PER_PACK;
+      var pct = totSolved ? Math.max(2, Math.round(totSolved / totLevels * 100)) : 0;
+      // solid red "campaign" card: star badge + progress through all levels
       html += '<div class="levels-card" id="levels-card">' +
-        '<div><div class="lc-main">Levels</div>' +
-        '<div class="lc-sub">' + totSolved + " / " + packs.length * LEVELS_PER_PACK +
-        " solved · ★ " + totStars + '</div></div>' +
+        '<div class="lv-badge" aria-hidden="true">★</div>' +
+        '<div class="card-text"><div class="lc-main">Levels</div>' +
+        '<div class="lc-sub">' + totSolved + " / " + totLevels + " solved · ★ " + totStars + '</div>' +
+        '<div class="lv-bar" aria-hidden="true"><span style="width:' + pct + '%"></span></div></div>' +
         '<div class="cc-arrow">→</div></div>';
     }
 
