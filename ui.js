@@ -178,17 +178,25 @@
     if (hasDaily()) {
       var today = dateKey(new Date()), drec = getDaily();
       var dStreak = currentStreak(drec, today), dSize = dailySize(today);
+      var tday = parseKey(today);
+      // a tear-off calendar tile gives the daily its own look on the home screen
       html += '<div class="daily-card" id="daily-card">' +
-        '<div><div class="lc-main">Daily · ' + fmtDay(today) + '</div>' +
-        '<div class="lc-sub">' + (drec[today] ? "Solved ✓ · new puzzle tomorrow" : dSize + " × " + dSize) +
-        (dStreak ? " · 🔥 " + dStreak + "-day streak" : "") + '</div></div>' +
+        '<div class="dc-tile" aria-hidden="true">' +
+        '<span class="dc-mon">' + tday.toLocaleDateString("en-GB", { month: "short" }) + '</span>' +
+        '<span class="dc-day">' + tday.getDate() + '</span></div>' +
+        '<div class="card-text"><div class="lc-main">Daily puzzle</div>' +
+        '<div class="lc-sub">' + fmtDay(today) + " · " +
+        (drec[today] ? "solved ✓ · new one tomorrow" : dSize + " × " + dSize) +
+        (dStreak ? " · 🔥 " + dStreak : "") + '</div></div>' +
         '<div class="cc-arrow">→</div></div>';
     }
 
     // first-timers get a friendly way into the tutorial
     if (!lsGet(KEY_TUTORIAL, false)) {
+      // a pencilled sticky note — deliberately unlike the gold Daily card
       html += '<div class="learn-card" id="learn-card">' +
-        '<div><div class="lc-main">New here? Learn to play</div>' +
+        '<div class="lc-badge" aria-hidden="true">?</div>' +
+        '<div class="card-text"><div class="lc-main">New here? Learn to play</div>' +
         '<div class="lc-sub">a 2-minute walkthrough of the three rules</div></div>' +
         '<div class="cc-arrow">→</div></div>';
     }
