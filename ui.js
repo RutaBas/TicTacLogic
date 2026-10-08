@@ -130,7 +130,7 @@
    * Screens + overlay
    * ======================================================================= */
   function showScreen(name) {
-    ["start-screen", "game-screen", "tutorial-screen", "levels-screen", "pack-screen"].forEach(function (id) {
+    ["start-screen", "game-screen", "tutorial-screen", "levels-screen", "pack-screen", "daily-screen"].forEach(function (id) {
       document.getElementById(id).classList.toggle("active", id === name + "-screen");
     });
   }
@@ -167,10 +167,21 @@
       var t = mins + ":" + (secs < 10 ? "0" : "") + secs;
       var what = save.mode === "level"
         ? "Level " + save.level + " · " + tierName(save.level)
+        : save.mode === "daily" ? "Daily · " + fmtDay(save.dailyKey)
         : "needs: " + (save.label || "logic");
       html += '<div class="continue-card" id="continue-card">' +
         '<div><div class="cc-main">Continue</div>' +
         '<div class="cc-sub">' + save.size + " × " + save.size + " · " + what + " · " + t + '</div></div>' +
+        '<div class="cc-arrow">→</div></div>';
+    }
+
+    if (hasDaily()) {
+      var today = dateKey(new Date()), drec = getDaily();
+      var dStreak = currentStreak(drec, today), dSize = dailySize(today);
+      html += '<div class="daily-card" id="daily-card">' +
+        '<div><div class="lc-main">Daily · ' + fmtDay(today) + '</div>' +
+        '<div class="lc-sub">' + (drec[today] ? "Solved ✓ · new puzzle tomorrow" : dSize + " × " + dSize) +
+        (dStreak ? " · 🔥 " + dStreak + "-day streak" : "") + '</div></div>' +
         '<div class="cc-arrow">→</div></div>';
     }
 
@@ -221,6 +232,8 @@
     if (cc) cc.addEventListener("click", continueSaved);
     var lc = document.getElementById("learn-card");
     if (lc) lc.addEventListener("click", function () { openTutorial(0); });
+    var dc = document.getElementById("daily-card");
+    if (dc) dc.addEventListener("click", openDaily);
     var lv = document.getElementById("levels-card");
     if (lv) lv.addEventListener("click", openLevels);
     // footer modals
@@ -235,7 +248,7 @@
   function startNewGame(size) {
     // starting a fresh puzzle abandons any unfinished saved game (breaks its streak)
     var prev = lsGet(KEY_SAVE, null);
-    if (prev && prev.cells && prev.mode !== "level") recordAbandon(prev.size);
+    if (prev && prev.cells && (prev.mode || "free") === "free") recordAbandon(prev.size);
 
     showOverlay('<div class="spinner">generating<span class="dot">.</span>' +
       '<span class="dot">.</span><span class="dot">.</span></div>' +
@@ -272,6 +285,8 @@
       maxTier: puzzle.maxTier,
       mode: puzzle.mode || "free",
       level: puzzle.level || null,
+      dailyKey: puzzle.dailyKey || null,     // which day's puzzle (daily mode)
+      startedKey: puzzle.startedKey || null, // the day the attempt began (streaks)
       moves: [],
       hintsUsed: 0,
       mistakes: 0,
@@ -297,6 +312,7 @@
       hintsUsed: game.hintsUsed || 0,
       mode: game.mode, level: game.level, mistakes: game.mistakes || 0,
       levelsV: typeof LEVELS_VERSION !== "undefined" ? LEVELS_VERSION : null,
+      dailyKey: game.dailyKey, startedKey: game.startedKey,
       savedAt: Date.now(),
     });
   }
@@ -319,6 +335,7 @@
     game = {
       state: state, size: save.size, label: save.label, maxTier: save.maxTier,
       mode: save.mode || "free", level: save.level || null,
+      dailyKey: save.dailyKey || null, startedKey: save.startedKey || null,
       moves: [], hintsUsed: save.hintsUsed || 0, mistakes: save.mistakes || 0,
       startTime: Date.now() - (save.elapsedMs || 0), // resume the clock
       finalElapsedMs: 0, over: false,
@@ -382,6 +399,8 @@
       '<span class="hud-timer" id="hud-timer">0:00</span></div>';
     var badge = game.mode === "level"
       ? game.size + " × " + game.size + " · Level " + game.level + " · " + game.label
+      : game.mode === "daily"
+      ? "Daily · " + fmtDay(game.dailyKey) + " · " + game.size + " × " + game.size
       : game.size + " × " + game.size + " · needs: " + game.label;
     html += '<div class="hud-badge">' + badge + '</div>';
     html += '<div class="hud-progress" id="hud-progress">' + counts.filled + " / " + counts.total + '</div>';
@@ -422,6 +441,10 @@
       wonNext.textContent = "Next level";
       wonNext.hidden = lvN % LEVELS_PER_TIER === 0; // last level of its section
       wonNext.addEventListener("click", function () { startLevel(lvSize, lvN + 1); });
+    } else if (game.mode === "daily") {
+      wonHome.textContent = "Calendar";
+      wonHome.addEventListener("click", openDaily);
+      wonNext.hidden = true; // one puzzle a day
     } else {
       wonHome.addEventListener("click", goHome);
       wonNext.addEventListener("click", function () { startNewGame(game.size); });
@@ -772,6 +795,17 @@
       return true;
     }
 
+    if (game.mode === "daily") {
+      // dailies keep their own records and never touch free-play stats
+      var dStars = computeStars(game.hintsUsed || 0, game.mistakes || 0);
+      var onTime = game.startedKey === game.dailyKey;
+      var recs = getDaily();
+      var dBefore = recs[game.dailyKey] || null;
+      lsSet(KEY_DAILY, recordDaily(recs, game.dailyKey, onTime, dStars, game.finalElapsedMs));
+      setTimeout(function () { if (game && game.over) showDailyWinOverlay(dStars, onTime, dBefore); }, 720);
+      return true;
+    }
+
     var ss = recordWin(game.size, game.label, game.finalElapsedMs);
     setTimeout(function () { if (game && game.over) showWinOverlay(ss); }, 720); // let the stroke land first
     return true;
@@ -835,6 +869,12 @@
     var n = game.size, cells = game.state.cells;
     var head = "Tic-Tac-Logic " + n + "×" + n + " · " + fmtTime(game.finalElapsedMs) +
       " · needs: " + game.label;
+    if (game.mode === "daily") {
+      var streak = game.startedKey === game.dailyKey ? currentStreak(getDaily(), dateKey(new Date())) : 0;
+      head = "Tic-Tac-Logic Daily · " + fmtDay(game.dailyKey) + " · " + n + "×" + n + " · " +
+        fmtTime(game.finalElapsedMs) + " · " + starString(computeStars(game.hintsUsed || 0, game.mistakes || 0)) +
+        (streak ? " 🔥" + streak : "");
+    }
     var rows = [];
     for (var r = 0; r < n; r++) {
       var line = "";
@@ -909,6 +949,136 @@
     document.getElementById("ov-levels").addEventListener("click", function () { openPack(size, tierOf(n)); });
     var nx = document.getElementById("ov-next-level");
     if (nx) nx.addEventListener("click", function () { startLevel(size, n + 1); });
+    document.getElementById("ov-look").addEventListener("click", hideOverlay);
+  }
+
+  /* ======================================================================= *
+   * DAILY CHALLENGE — one puzzle per local day, generated from the date
+   * (daily.js). Its own records + streak; never touches free-play stats.
+   * ======================================================================= */
+  var KEY_DAILY = "tictaclogic.daily"; // { "2026-10-08": {stars, bestMs, onTime} }
+  var dailyMonth = null;               // { y, m } shown in the calendar
+
+  function hasDaily() { return typeof dailyPuzzle === "function"; }
+  function getDaily() { return lsGet(KEY_DAILY, {}); }
+  function fmtDay(key) {
+    return parseKey(key).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  }
+
+  function openDaily() {
+    leaveGameScreen();
+    dailyMonth = null; // back to the current month
+    renderDaily();
+    showScreen("daily");
+  }
+
+  function renderDaily() {
+    var today = dateKey(new Date()), rec = getDaily();
+    var now = parseKey(today), epoch = parseKey(DAILY_EPOCH);
+    if (!dailyMonth) dailyMonth = { y: now.getFullYear(), m: now.getMonth() };
+    var shown = dailyMonth.y * 12 + dailyMonth.m;
+    var canPrev = shown > epoch.getFullYear() * 12 + epoch.getMonth();
+    var canNext = shown < now.getFullYear() * 12 + now.getMonth();
+    var tr = rec[today], size = dailySize(today);
+    var solvedCount = Object.keys(rec).length;
+
+    var html = '<div class="screen-top">' +
+      '<button class="home-btn" id="dl-home">‹ Home</button>' +
+      '<h2 class="screen-title">Daily</h2><span></span></div>';
+    html += '<button class="daily-today" id="dl-today">' +
+      '<span class="dt-main">' + (tr ? "Today’s puzzle ✓" : "Play today’s puzzle") + '</span>' +
+      '<span class="dt-sub">' + fmtDay(today) + " · " + size + " × " + size +
+      (tr ? " · " + starString(tr.stars) + " · " + fmtTime(tr.bestMs) : "") + '</span></button>';
+    html += '<div class="daily-stats">' +
+      '<div><b>' + currentStreak(rec, today) + '</b><span>streak</span></div>' +
+      '<div><b>' + bestStreak(rec) + '</b><span>best streak</span></div>' +
+      '<div><b>' + solvedCount + '</b><span>solved</span></div></div>';
+    html += '<div class="cal-nav">' +
+      '<button class="cal-arrow" id="cal-prev" aria-label="Previous month"' + (canPrev ? "" : " disabled") + '>‹</button>' +
+      '<span class="cal-title">' + new Date(dailyMonth.y, dailyMonth.m, 1)
+        .toLocaleDateString("en-GB", { month: "long", year: "numeric" }) + '</span>' +
+      '<button class="cal-arrow" id="cal-next" aria-label="Next month"' + (canNext ? "" : " disabled") + '>›</button></div>';
+    html += '<div class="cal-grid">';
+    ["M", "T", "W", "T", "F", "S", "S"].forEach(function (d) { html += '<span class="cal-head">' + d + '</span>'; });
+    monthGrid(dailyMonth.y, dailyMonth.m).forEach(function (k) {
+      if (!k) { html += '<span class="cal-cell blank"></span>'; return; }
+      var day = +k.slice(8);
+      if (k < DAILY_EPOCH || k > today) { html += '<span class="cal-cell off">' + day + '</span>'; return; }
+      var r = rec[k];
+      html += '<button class="cal-cell' + (r ? (r.onTime ? " ontime" : " late") : "") + (k === today ? " today" : "") +
+        '" data-k="' + k + '" aria-label="' + fmtDay(k) + (r ? ", solved" : "") + '">' + day +
+        (r ? '<span class="cal-mark">✓</span>' : "") + '</button>';
+    });
+    html += '</div>';
+    html += '<p class="cal-legend"><span class="ontime">✓</span> solved on the day · ' +
+      '<span class="late">✓</span> solved later · tap any past day to play it</p>';
+
+    var el = document.getElementById("daily-screen");
+    el.innerHTML = html;
+    document.getElementById("dl-home").addEventListener("click", function () { renderStart(); showScreen("start"); });
+    document.getElementById("dl-today").addEventListener("click", function () { startDaily(today); });
+    document.getElementById("cal-prev").addEventListener("click", function () { stepMonth(-1); });
+    document.getElementById("cal-next").addEventListener("click", function () { stepMonth(1); });
+    Array.prototype.forEach.call(el.querySelectorAll("button.cal-cell"), function (b) {
+      b.addEventListener("click", function () { startDaily(b.dataset.k); });
+    });
+  }
+  function stepMonth(delta) {
+    var d = new Date(dailyMonth.y, dailyMonth.m + delta, 1);
+    dailyMonth = { y: d.getFullYear(), m: d.getMonth() };
+    renderDaily();
+  }
+
+  function startDaily(key) {
+    showOverlay('<div class="spinner">generating<span class="dot">.</span>' +
+      '<span class="dot">.</span><span class="dot">.</span></div>' +
+      '<p>fetching the ' + fmtDay(key) + ' daily</p>');
+    setTimeout(function () { // let the overlay paint before the (blocking) generation
+      var p;
+      try { p = dailyPuzzle(key); } catch (e) {
+        showOverlay('<h2>Hmm.</h2><p>That daily could not be made: ' + e +
+          '</p><button class="btn" id="ov-dismiss">Back</button>');
+        document.getElementById("ov-dismiss").addEventListener("click", openDaily);
+        return;
+      }
+      // like startNewGame: leaving an unfinished FREE game breaks its streak
+      var prev = lsGet(KEY_SAVE, null);
+      if (prev && prev.cells && (prev.mode || "free") === "free") recordAbandon(prev.size);
+      hideOverlay();
+      loadPuzzle({
+        size: p.size, clues: p.clues, solution: p.solution,
+        maxTier: p.maxTier, label: p.label, id: null, seed: null,
+        mode: "daily", dailyKey: key, startedKey: dateKey(new Date()),
+      });
+      showScreen("game");
+    }, 40);
+  }
+
+  function showDailyWinOverlay(stars, onTime, before) {
+    var recs = getDaily(), streak = currentStreak(recs, dateKey(new Date()));
+    var row = "";
+    for (var i = 0; i < 3; i++) {
+      row += '<span class="win-star' + (i < stars ? " on" : "") +
+        '" style="animation-delay:' + (0.1 + i * 0.25) + 's">★</span>';
+    }
+    var newBest = before && before.bestMs && game.finalElapsedMs < before.bestMs;
+    var streakLine = !onTime ? "played late — doesn’t count toward your streak"
+      : "🔥 " + streak + "-day streak" + (streak > 1 && streak === bestStreak(recs) ? " — your best!" : "");
+    showOverlay('<h2>Daily solved!</h2>' +
+      '<div class="win-stars" aria-label="' + stars + ' of 3 stars">' + row + '</div>' +
+      '<p>' + fmtDay(game.dailyKey) + " · " + game.size + " × " + game.size +
+      " · <strong>" + fmtTime(game.finalElapsedMs) + "</strong>" + (newBest ? " · a new best!" : "") +
+      "<br>" + (game.hintsUsed ? "☆ no-hints star — you used " + game.hintsUsed : "★ no hints") +
+      "<br>" + (game.mistakes ? "☆ no-mistakes star — " + game.mistakes + " flagged" : "★ no mistakes") +
+      "<br><strong>" + streakLine + "</strong></p>" +
+      '<div class="share-row">' +
+      '<button class="btn" id="ov-share">Share</button>' +
+      '<button class="btn" id="ov-home">Home</button>' +
+      '<button class="btn primary" id="ov-cal">Calendar</button></div>' +
+      '<button class="link-btn" id="ov-look">admire the board</button>');
+    document.getElementById("ov-share").addEventListener("click", function () { copyShare(this); });
+    document.getElementById("ov-home").addEventListener("click", goHome);
+    document.getElementById("ov-cal").addEventListener("click", openDaily);
     document.getElementById("ov-look").addEventListener("click", hideOverlay);
   }
 
@@ -1024,7 +1194,7 @@
     }
     // like startNewGame: leaving an unfinished FREE game breaks its streak
     var prev = lsGet(KEY_SAVE, null);
-    if (prev && prev.cells && prev.mode !== "level") recordAbandon(prev.size);
+    if (prev && prev.cells && (prev.mode || "free") === "free") recordAbandon(prev.size);
     hideOverlay();
     loadPuzzle({
       size: size, clues: parsed.grid, solution: r.grid,
