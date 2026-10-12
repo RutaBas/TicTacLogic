@@ -413,12 +413,14 @@
   /* ======================================================================= *
    * BOARD SIZING (responsive: fit the viewport, cap the cell size)
    * ======================================================================= */
+  var GAME_CHROME_H = 280; // top bar + title block + hint + buttons + gaps
   function applyBoardSizing(n) {
-    var gutter = 24;
-    var avail = Math.min(window.innerWidth - gutter * 2, 480);
+    var gutter = 12;
     var gap = n <= 10 ? 3 : 2;
+    // fill the width, but never so tall that the buttons get pushed off-screen
+    var avail = Math.min(window.innerWidth - gutter * 2, 496, window.innerHeight - GAME_CHROME_H);
     var cell = Math.floor((avail - gap * (n + 1)) / n);
-    cell = Math.max(18, Math.min(cell, 46));
+    cell = Math.max(18, Math.min(cell, 64));
     var root = document.documentElement.style;
     root.setProperty("--n", n);
     root.setProperty("--cell", cell + "px");
@@ -436,11 +438,12 @@
     var counts = fillCounts(game.state);
     var html = "";
 
-    html += '<div class="hud">';
+    // layout: top bar | title block (floats midway) | board + buttons | spacer
     html += '<div class="hud-row">' +
       '<button class="home-btn" id="btn-home" aria-label="Home">‹ Home</button>' +
-      '<span class="hud-title">Tic-Tac-Logic</span>' +
       '<span class="hud-timer" id="hud-timer">0:00</span></div>';
+    html += '<div class="hud">';
+    html += '<span class="hud-title">Tic-Tac-Logic</span>';
     var badge = game.mode === "level"
       ? game.size + " × " + game.size + " · Level " + game.level + " · " + game.label
       : game.mode === "daily"
@@ -463,6 +466,7 @@
       '<button class="btn" id="btn-won-home">Home</button>' +
       '<button class="btn primary" id="btn-won-next">Next puzzle</button>' +
       '</div>';
+    html += '<div class="game-spacer"></div>';
 
     el.innerHTML = html;
     // The board element is created fresh above, so this is its ONE click
