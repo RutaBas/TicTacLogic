@@ -371,7 +371,34 @@
     timerHandle = setInterval(updateTimerLabel, 500);
   }
   function stopTimer() { if (timerHandle) { clearInterval(timerHandle); timerHandle = null; } }
-  function elapsedMs() { return game.over ? game.finalElapsedMs : (Date.now() - game.startTime); }
+  function elapsedMs() {
+    if (game.over) return game.finalElapsedMs;
+    return (game.pausedAt || Date.now()) - game.startTime; // frozen while paused
+  }
+
+  /* ---- pause: freeze the clock and hide the board until Resume ---- */
+  function pauseGame() {
+    if (!game || game.over || game.pausedAt) return;
+    game.pausedAt = Date.now();
+    stopTimer();
+    clearTimeout(violationTimer);
+    saveGame();
+    document.getElementById("game-screen").classList.add("paused");
+    showOverlay('<h2>Paused</h2><p>' + fmtTime(elapsedMs()) + ' on the clock</p>' +
+      '<button class="btn primary" id="ov-resume">Resume</button>' +
+      '<button class="link-btn" id="ov-pause-home">Home</button>');
+    document.getElementById("ov-resume").addEventListener("click", resumeGame);
+    document.getElementById("ov-pause-home").addEventListener("click", function () { resumeGame(); goHome(); });
+  }
+  function resumeGame() {
+    if (!game || !game.pausedAt) return;
+    game.startTime += Date.now() - game.pausedAt; // paused time never counts
+    game.pausedAt = null;
+    document.getElementById("game-screen").classList.remove("paused");
+    hideOverlay();
+    startTimer();
+    scheduleViolations();
+  }
   function fmtTime(ms) {
     var s = Math.floor(ms / 1000);
     var m = Math.floor(s / 60);
@@ -428,7 +455,7 @@
 
     html += '<div class="controls" id="controls">' +
       '<button class="btn" id="btn-undo">Undo</button>' +
-      '<button class="btn" id="btn-clear">Clear</button>' +
+      '<button class="btn" id="btn-pause">Pause</button>' +
       '<button class="btn primary" id="btn-hint">Hint</button>' +
       '<button class="btn" id="btn-restart">Restart</button>' +
       '</div>';
@@ -439,17 +466,17 @@
 
     el.innerHTML = html;
     // The board element is created fresh above, so this is its ONE click
-    // listener. (buildBoard() must never add one — Clear/Restart call it on the
+    // listener. (buildBoard() must never add one — Restart calls it on the
     // same element, and stacked listeners made one tap cycle a cell 2-3 times.)
     document.getElementById("board").addEventListener("click", onBoardClick);
     buildBoard();
     updateTimerLabel();
 
     document.getElementById("btn-home").addEventListener("click", goHome);
+    document.getElementById("btn-pause").addEventListener("click", pauseGame);
     document.getElementById("btn-undo").addEventListener("click", undoMove);
-    document.getElementById("btn-clear").addEventListener("click", clearBoard);
     document.getElementById("btn-hint").addEventListener("click", giveHint);
-    document.getElementById("btn-restart").addEventListener("click", restartGame);
+    document.getElementById("btn-restart").addEventListener("click", confirmRestart);
     var wonHome = document.getElementById("btn-won-home"), wonNext = document.getElementById("btn-won-next");
     if (game.mode === "level") {
       var lvSize = game.size, lvN = game.level;
@@ -555,7 +582,7 @@
     prevBad = bad;
     // a rule break the player actually SAW costs the "no mistakes" star. Only
     // real flag events count (deferred tap check, hint/fill) — not board
-    // rebuilds on Continue/Clear, and not undo.
+    // rebuilds on Continue/Restart, and not undo.
     if (countMistakes && fresh && !game.over) game.mistakes = (game.mistakes || 0) + 1;
   }
 
@@ -624,15 +651,17 @@
     saveGame();
   }
 
-  function clearBoard() {
+  /** Restart wipes the whole attempt, so a stray tap must not do it alone. */
+  function confirmRestart() {
     if (game.over) return;
-    clearHint();
-    clearPlayerMarks(game.state);
-    game.moves = [];
-    buildBoard();
-    updateProgress();
-    refreshControls();
-    saveGame();
+    showOverlay('<h2>Restart?</h2><p>This erases your marks and resets the clock, ' +
+      'hints and mistakes.</p>' +
+      '<button class="btn primary" id="ov-keep">Keep playing</button>' +
+      '<button class="link-btn" id="ov-restart">Restart</button>');
+    document.getElementById("ov-keep").addEventListener("click", hideOverlay);
+    document.getElementById("ov-restart").addEventListener("click", function () {
+      hideOverlay(); restartGame();
+    });
   }
 
   function restartGame() {
@@ -656,7 +685,7 @@
    *   1st  "nudge": highlight the clue cells / line and say where to look
    *   2nd  "show":  also mark the target cell with a faint ghost of the answer
    *   3rd  "fill":  write the mark in (an ordinary, undoable move)
-   * Any tap on the board, Undo, Clear or Restart resets the sequence.
+   * Any tap on the board, Undo or Restart resets the sequence.
    * The step comes from solver.js nextHint(): simplest technique first, and
    * nearest the player's last move, so hints follow where they're working.
    * ======================================================================= */
@@ -1561,9 +1590,13 @@
   /* ======================================================================= *
    * boot
    * ======================================================================= */
-  // persist across tab close / backgrounding
-  window.addEventListener("pagehide", saveIfPlaying);
-  document.addEventListener("visibilitychange", function () { if (document.hidden) saveIfPlaying(); });
+  // persist across tab close / backgrounding; leaving the app mid-game also
+  // pauses it, so time spent elsewhere never lands on the clock
+  function pauseIfPlaying() {
+    if (document.getElementById("game-screen").classList.contains("active")) pauseGame();
+  }
+  window.addEventListener("pagehide", pauseIfPlaying);
+  document.addEventListener("visibilitychange", function () { if (document.hidden) pauseIfPlaying(); });
 
   function applyTheme() {
     document.body.classList.toggle("dark", getSettings().dark);

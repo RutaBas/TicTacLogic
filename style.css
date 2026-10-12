@@ -188,6 +188,8 @@ body {
   font-family: 'Karla'; font-weight: 500; font-size: 13px; color: var(--text-2nd);
   background: var(--paper); padding: 0 4px;
 }
+/* paused: hide the grid so the clock can't be cheated */
+#game-screen.paused .board-wrap { filter: blur(10px); }
 .hud-title {
   font-family: 'Caveat', cursive; font-weight: 700; font-size: 24px; color: var(--graphite);
 }
