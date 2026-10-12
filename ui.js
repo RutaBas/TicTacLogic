@@ -329,6 +329,11 @@
     });
   }
   function clearSave() { lsDel(KEY_SAVE); }
+  /** True when the unfinished saved game is a `mode` game matching `same`. */
+  function savedIs(mode, same) {
+    var save = migrateSave(lsGet(KEY_SAVE, null));
+    return !!(save && save.cells && save.mode === mode && same(save));
+  }
 
   /** Save only when the game is actually on screen. From a menu it was already
    *  saved on the way out, and re-saving would add menu time to its clock. */
@@ -1108,6 +1113,8 @@
   }
 
   function startDaily(key) {
+    // re-opening the day already in progress resumes it rather than wiping it
+    if (savedIs("daily", function (s) { return s.dailyKey === key; })) { continueSaved(); return; }
     showOverlay('<div class="spinner">generating<span class="dot">.</span>' +
       '<span class="dot">.</span><span class="dot">.</span></div>' +
       '<p>fetching the ' + fmtDay(key) + ' daily</p>');
@@ -1259,6 +1266,8 @@
   }
 
   function startLevel(size, n) {
+    // re-opening the level already in progress resumes it rather than wiping it
+    if (savedIs("level", function (s) { return s.size === size && s.level === n; })) { continueSaved(); return; }
     var parsed = null, r = null;
     try {
       parsed = gridFromString(LEVELS[size][n - 1]);
